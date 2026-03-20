@@ -1,0 +1,13 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": ["src/renderer/src/env.d.ts", "src/renderer/src/**/*", "src/preload/*.d.ts"],
+  "compilerOptions": {
+    "composite": true,
+    "baseUrl": ".",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "paths": {
+      "@renderer/*": ["src/renderer/src/*"]
+    }
+  }
+}
