@@ -15,13 +15,22 @@ const scrollToBottom = (): DirectiveResult => {
 import { icon } from '@mariozechner/mini-lit/dist/icons.js'
 import { Select } from '@mariozechner/mini-lit/dist/Select.js'
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader
+} from '@mariozechner/mini-lit/dist/Dialog.js'
+import { Button } from '@mariozechner/mini-lit/dist/Button.js'
+import {
+  AlertTriangle,
   Folder,
   FolderOpen,
   FolderPlus,
   LoaderCircle,
   PanelLeftClose,
   PanelLeftOpen,
-  SquarePen
+  SquarePen,
+  Trash2
 } from 'lucide'
 
 type Role = 'user' | 'assistant'
@@ -128,6 +137,7 @@ interface AppState extends PersistedState {
   activeAssistantMessageId: string | null
   sidebarCollapsed: boolean
   expandedWorkspaces: Set<string>
+  deleteChatId: string | null
 }
 
 const STORAGE_KEY = 'pi-ui.chats.v5'
@@ -252,7 +262,8 @@ const loadState = (): AppState => {
         activeRequestId: null,
         activeAssistantMessageId: null,
         sidebarCollapsed: true,
-        expandedWorkspaces: new Set<string>()
+        expandedWorkspaces: new Set<string>(),
+        deleteChatId: null
       }
     }
   } catch (error) {
@@ -276,7 +287,8 @@ const loadState = (): AppState => {
     activeRequestId: null,
     activeAssistantMessageId: null,
     sidebarCollapsed: true,
-    expandedWorkspaces: new Set<string>()
+    expandedWorkspaces: new Set<string>(),
+    deleteChatId: null
   }
 }
 
@@ -609,6 +621,48 @@ const toggleSidebar = (): void => {
   triggerChange()
 }
 
+const openDeleteChatDialog = (chatId: string): void => {
+  updateState((current) => ({
+    ...current,
+    deleteChatId: chatId
+  }))
+}
+
+const closeDeleteChatDialog = (): void => {
+  updateState((current) => ({
+    ...current,
+    deleteChatId: null
+  }))
+}
+
+const confirmDeleteChat = (): void => {
+  const targetChatId = state.deleteChatId
+  if (!targetChatId || state.sendingChatId === targetChatId) return
+
+  updateState((current) => {
+    const chatToDelete = current.chats.find((chat) => chat.id === targetChatId)
+    if (!chatToDelete) {
+      return {
+        ...current,
+        deleteChatId: null
+      }
+    }
+
+    const chats = sortChats(current.chats.filter((chat) => chat.id !== targetChatId))
+    const workspaceChats = getChatsForWorkspace(chatToDelete.workspacePath, chats)
+    const fallbackChat = workspaceChats[0]
+
+    return {
+      ...current,
+      chats,
+      activeWorkspacePath: chatToDelete.workspacePath,
+      activeChatId:
+        current.activeChatId === targetChatId ? (fallbackChat?.id ?? '') : current.activeChatId,
+      deleteChatId: null
+    }
+  })
+}
+
 const openFolder = async (): Promise<void> => {
   if (folderPickerInFlight || state.sendingChatId || !state.loggedIn) return
   folderPickerInFlight = true
@@ -793,22 +847,43 @@ const renderChatList = (workspace: Workspace, activeChatId: string): TemplateRes
     <div class="space-y-1 pl-7">
       ${chats.map((chat) => {
         const isActive = chat.id === activeChatId
+        const canDelete = state.sendingChatId !== chat.id
+
         return html`
-          <button
-            type="button"
-            class=${[
-              'flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-left transition-colors',
-              isActive ? 'bg-[#434343]' : 'bg-transparent hover:bg-[#434343]'
-            ].join(' ')}
-            @click=${() => selectChat(chat.id)}
-          >
-            <span class="min-w-0 truncate text-[13px] font-medium leading-none text-[#f5f5f5]">
-              ${chat.title}
-            </span>
-            <span class="shrink-0 text-[13px] leading-none text-[#b3b3b3]">
-              ${formatRelativeTime(chat.updatedAt)}
-            </span>
-          </button>
+          <div class="group relative">
+            <button
+              type="button"
+              class=${[
+                'flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-left transition-colors',
+                isActive ? 'bg-[#434343]' : 'bg-transparent hover:bg-[#434343]'
+              ].join(' ')}
+              @click=${() => selectChat(chat.id)}
+            >
+              <span class="min-w-0 truncate text-[13px] font-medium leading-none text-[#f5f5f5]">
+                ${chat.title}
+              </span>
+              <span class="flex shrink-0 items-center gap-2">
+                ${canDelete
+                  ? html`
+                      <button
+                        type="button"
+                        class="flex h-5 w-5 items-center justify-center text-[#8f8f8f] opacity-0 transition-all group-hover:opacity-100 hover:text-[#f28b82]"
+                        title="Delete chat"
+                        @click=${(event: Event) => {
+                          event.stopPropagation()
+                          openDeleteChatDialog(chat.id)
+                        }}
+                      >
+                        ${icon(Trash2, 'xs')}
+                      </button>
+                    `
+                  : ''}
+                <span class="text-[13px] leading-none text-[#b3b3b3]">
+                  ${formatRelativeTime(chat.updatedAt)}
+                </span>
+              </span>
+            </button>
+          </div>
         `
       })}
     </div>
@@ -1168,6 +1243,44 @@ export const App = (): TemplateResult => {
           </section>
         </div>
       </main>
+
+      ${Dialog({
+        isOpen: Boolean(state.deleteChatId),
+        onClose: closeDeleteChatDialog,
+        width: '400px',
+        children: html`
+          ${DialogContent({
+            children: html`
+              ${DialogHeader({
+                title: 'Delete chat?',
+                description: 'This will permanently remove the chat from the sidebar.'
+              })}
+
+              <div class="mt-4 flex items-center gap-2 rounded-md bg-red-500/10 p-3 text-sm text-[#f5c2c0]">
+                ${icon(AlertTriangle, 'sm', 'text-[#f28b82]')}
+                <span>This action cannot be undone.</span>
+              </div>
+
+              ${DialogFooter({
+                children: html`
+                  <div class="mt-5 flex justify-end gap-2">
+                    ${Button({
+                      variant: 'outline',
+                      onClick: () => closeDeleteChatDialog(),
+                      children: 'Cancel'
+                    })}
+                    ${Button({
+                      variant: 'destructive',
+                      onClick: () => confirmDeleteChat(),
+                      children: 'Delete'
+                    })}
+                  </div>
+                `
+              })}
+            `
+          })}
+        `
+      })}
     </div>
   `
 }
