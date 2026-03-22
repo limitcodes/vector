@@ -572,17 +572,24 @@ const getActiveChat = (): Chat | undefined => {
   return state.chats.find((chat) => chat.id === state.activeChatId)
 }
 
-const createNewChat = (): void => {
-  const workspace = getActiveWorkspace()
-  if (workspace.path === DEFAULT_WORKSPACE_PATH || state.sendingChatId || !state.loggedIn) return
+const createChatForWorkspace = (workspacePath: string): void => {
+  if (workspacePath === DEFAULT_WORKSPACE_PATH || state.sendingChatId || !state.loggedIn) return
+
+  const workspace = getWorkspaceByPath(state.workspaces, workspacePath)
+  if (workspace.path === DEFAULT_WORKSPACE_PATH) return
 
   const chat = createChat(workspace)
   updateState((current) => ({
     ...current,
-    chats: sortChats([chat, ...current.chats]),
+    activeWorkspacePath: workspace.path,
     activeChatId: chat.id,
+    chats: sortChats([chat, ...current.chats]),
     composer: ''
   }))
+}
+
+const createNewChat = (): void => {
+  createChatForWorkspace(getActiveWorkspace().path)
 }
 
 const selectChat = (chatId: string): void => {
@@ -840,6 +847,23 @@ const renderOpenAiMark = (className = 'h-4 w-4'): TemplateResult => html`
   </svg>
 `
 
+const renderTablerPlus = (className = 'h-4 w-4'): TemplateResult => html`
+  <svg
+    class=${className}
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 5v14" />
+    <path d="M5 12h14" />
+  </svg>
+`
+
 const renderChatList = (workspace: Workspace, activeChatId: string): TemplateResult => {
   const chats = getChatsForWorkspace(workspace.path, state.chats)
 
@@ -936,22 +960,37 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
 
                         return html`
                           <section class="space-y-1">
-                            <button
-                              type="button"
-                              class="flex w-full items-center gap-2 px-3 py-2 text-left"
-                              @click=${() => toggleWorkspaceExpanded(workspace.path)}
-                            >
-                              ${icon(
-                                isExpanded ? FolderOpen : Folder,
-                                'sm',
-                                'shrink-0 text-[#f5f5f5]'
-                              )}
-                              <span
-                                class="truncate text-[15px] font-semibold leading-none text-[#f5f5f5]"
+                            <div class="flex items-center gap-1 px-2 py-1">
+                              <button
+                                type="button"
+                                class="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-left"
+                                @click=${() => toggleWorkspaceExpanded(workspace.path)}
                               >
-                                ${workspace.name}
-                              </span>
-                            </button>
+                                ${icon(
+                                  isExpanded ? FolderOpen : Folder,
+                                  'sm',
+                                  'shrink-0 text-[#f5f5f5]'
+                                )}
+                                <span
+                                  class="truncate text-[15px] font-semibold leading-none text-[#f5f5f5]"
+                                >
+                                  ${workspace.name}
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#8f8f8f] transition-colors hover:bg-[#434343] hover:text-[#f5f5f5]"
+                                title="New chat in ${workspace.name}"
+                                ?disabled=${state.sendingChatId !== null}
+                                @click=${(event: Event) => {
+                                  event.stopPropagation()
+                                  createChatForWorkspace(workspace.path)
+                                }}
+                              >
+                                ${renderTablerPlus('h-4 w-4')}
+                              </button>
+                            </div>
 
                             ${isExpanded ? renderChatList(workspace, activeChatId) : ''}
                           </section>
