@@ -548,6 +548,18 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('auth:logout-codex', async () => {
+    try {
+      authStorage.logout('openai-codex')
+      modelRegistry.refresh()
+      sessionCache.clear()
+      return { ok: true as const, state: getAuthState() }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { ok: false as const, error: message }
+    }
+  })
+
   ipcMain.handle('dialog:open-folder', async () => {
     const options: OpenDialogOptions = {
       title: 'Open Folder',

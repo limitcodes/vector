@@ -61,6 +61,7 @@ type TerminalEvent =
 interface PiDesktopApi {
   getAuthState: () => Promise<AuthState>
   loginCodex: () => Promise<{ ok: true; state: AuthState } | { ok: false; error: string }>
+  logoutCodex: () => Promise<{ ok: true; state: AuthState } | { ok: false; error: string }>
   openFolder: () => Promise<{ path: string; name: string } | null>
   sendChatMessage: (payload: {
     chatId: string

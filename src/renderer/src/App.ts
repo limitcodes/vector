@@ -32,6 +32,7 @@ import {
   LoaderCircle,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
   SquarePen,
   TerminalSquare,
   Trash2
@@ -164,6 +165,7 @@ interface AppState extends PersistedState {
   models: ModelOption[]
   sidebarCollapsed: boolean
   expandedWorkspaces: Set<string>
+  settingsDialogOpen: boolean
   deleteChatId: string | null
   terminalDockOpen: boolean
   terminalSessions: TerminalSessionSummary[]
@@ -293,6 +295,7 @@ const loadState = (): AppState => {
         models: [],
         sidebarCollapsed: true,
         expandedWorkspaces: new Set<string>(),
+        settingsDialogOpen: false,
         deleteChatId: null,
         terminalDockOpen: false,
         terminalSessions: [],
@@ -319,6 +322,7 @@ const loadState = (): AppState => {
     models: [],
     sidebarCollapsed: true,
     expandedWorkspaces: new Set<string>(),
+    settingsDialogOpen: false,
     deleteChatId: null,
     terminalDockOpen: false,
     terminalSessions: [],
@@ -1072,6 +1076,20 @@ const openDeleteChatDialog = (chatId: string): void => {
   }))
 }
 
+const openSettingsDialog = (): void => {
+  updateState((current) => ({
+    ...current,
+    settingsDialogOpen: true
+  }))
+}
+
+const closeSettingsDialog = (): void => {
+  updateState((current) => ({
+    ...current,
+    settingsDialogOpen: false
+  }))
+}
+
 const closeDeleteChatDialog = (): void => {
   updateState((current) => ({
     ...current,
@@ -1108,6 +1126,40 @@ const confirmDeleteChat = (): void => {
       deleteChatId: null
     }
   })
+}
+
+const logoutCodex = async (): Promise<void> => {
+  if (state.authBusy) return
+
+  updateState((current) => ({
+    ...current,
+    authBusy: true,
+    authError: null
+  }))
+
+  const result = await window.api.logoutCodex()
+  if (!result.ok) {
+    updateState((current) => ({
+      ...current,
+      authBusy: false,
+      authChecked: true,
+      authError: result.error
+    }))
+    return
+  }
+
+  updateState((current) => ({
+    ...current,
+    authBusy: false,
+    authChecked: true,
+    loggedIn: result.state.loggedIn,
+    models: result.state.models,
+    selectedModelId: result.state.models.some((model) => model.id === current.selectedModelId)
+      ? current.selectedModelId
+      : result.state.defaultModelId,
+    authError: null,
+    settingsDialogOpen: false
+  }))
 }
 
 const openFolder = async (): Promise<void> => {
@@ -1290,6 +1342,12 @@ const onGlobalKeyDown = (event: KeyboardEvent): void => {
   if (modifier && event.key.toLowerCase() === 'b' && state.loggedIn) {
     event.preventDefault()
     toggleSidebar()
+    return
+  }
+
+  if (event.metaKey && event.key === ',' && state.loggedIn) {
+    event.preventDefault()
+    openSettingsDialog()
     return
   }
 
@@ -1489,6 +1547,18 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
                         `
                       })}
                 </div>
+              </div>
+
+              <div class="mt-3 px-2 pt-2">
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[#f5f5f5] transition-colors hover:bg-[#434343] disabled:cursor-not-allowed disabled:opacity-60"
+                  ?disabled=${state.authBusy}
+                  @click=${openSettingsDialog}
+                >
+                  ${icon(Settings, 'sm')}
+                  <span class="text-[15px] font-medium leading-none">Settings</span>
+                </button>
               </div>
             </aside>
           `}
@@ -1912,6 +1982,40 @@ export const App = (): TemplateResult => {
           ${renderTerminalDock()}
         </div>
       </main>
+
+      ${Dialog({
+        isOpen: state.settingsDialogOpen,
+        onClose: closeSettingsDialog,
+        width: '400px',
+        children: html`
+          ${DialogContent({
+            children: html`
+              ${DialogHeader({
+                title: 'Settings',
+                description: 'Manage your account session.'
+              })}
+
+              ${DialogFooter({
+                children: html`
+                  <div class="mt-5 flex justify-end gap-2">
+                    ${Button({
+                      variant: 'outline',
+                      onClick: () => closeSettingsDialog(),
+                      children: 'Cancel'
+                    })}
+                    ${Button({
+                      variant: 'destructive',
+                      onClick: () => void logoutCodex(),
+                      disabled: state.authBusy,
+                      children: state.authBusy ? 'Logging out' : 'Logout'
+                    })}
+                  </div>
+                `
+              })}
+            `
+          })}
+        `
+      })}
 
       ${Dialog({
         isOpen: Boolean(state.deleteChatId),

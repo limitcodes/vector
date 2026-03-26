@@ -66,6 +66,9 @@ const api = {
   loginCodex: async (): Promise<{ ok: true; state: AuthState } | { ok: false; error: string }> => {
     return ipcRenderer.invoke('auth:login-codex')
   },
+  logoutCodex: async (): Promise<{ ok: true; state: AuthState } | { ok: false; error: string }> => {
+    return ipcRenderer.invoke('auth:logout-codex')
+  },
   openFolder: async (): Promise<{ path: string; name: string } | null> => {
     return ipcRenderer.invoke('dialog:open-folder')
   },
