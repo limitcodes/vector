@@ -7,6 +7,7 @@ import {
   App,
   setAppChangeListener,
   setChatNotificationCleanup,
+  setQuestionPromptCleanup,
   setStreamCleanup,
   setTerminalCleanup
 } from './App'
@@ -26,5 +27,6 @@ const mount = (): void => {
 setAppChangeListener(mount)
 setStreamCleanup(window.api.onAgentStreamEvent)
 setChatNotificationCleanup(window.api.onChatNotificationClick)
+setQuestionPromptCleanup(window.api.onQuestionPrompt)
 setTerminalCleanup(window.api.onTerminalEvent)
 mount()

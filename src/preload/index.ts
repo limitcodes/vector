@@ -45,6 +45,25 @@ type ChatNotificationClickEvent = {
   chatId: string
 }
 
+type QuestionPromptQuestion = {
+  index: number
+  question: string
+  topic: string
+  options: string[]
+}
+
+type QuestionPromptEvent = {
+  chatId: string
+  toolCallId: string
+  questions: QuestionPromptQuestion[]
+}
+
+type QuestionAnswer = {
+  topic: string
+  question: string
+  answer: string
+}
+
 type TerminalSessionSummary = {
   id: string
   title: string
@@ -103,6 +122,13 @@ const api = {
   }): Promise<{ ok: true } | { ok: false; error: string }> => {
     return ipcRenderer.invoke('chat:show-notification', payload)
   },
+  submitQuestionResponse: async (payload: {
+    toolCallId: string
+    cancelled?: boolean
+    answers?: QuestionAnswer[]
+  }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    return ipcRenderer.invoke('question:submit', payload)
+  },
   onAgentStreamEvent: (listener: (event: AgentStreamEvent) => void): (() => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: AgentStreamEvent): void =>
       listener(payload)
@@ -119,6 +145,14 @@ const api = {
     ipcRenderer.on('chat-notification:click', wrapped)
     return () => {
       ipcRenderer.removeListener('chat-notification:click', wrapped)
+    }
+  },
+  onQuestionPrompt: (listener: (event: QuestionPromptEvent) => void): (() => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, payload: QuestionPromptEvent): void =>
+      listener(payload)
+    ipcRenderer.on('question:prompt', wrapped)
+    return () => {
+      ipcRenderer.removeListener('question:prompt', wrapped)
     }
   },
   listTerminals: async (): Promise<TerminalSessionSummary[]> => {

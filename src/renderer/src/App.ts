@@ -17,6 +17,7 @@ const scrollToBottom = (): DirectiveResult => {
   })
 }
 import { icon } from '@mariozechner/mini-lit/dist/icons.js'
+import { Checkbox } from '@mariozechner/mini-lit/dist/Checkbox.js'
 import { Select } from '@mariozechner/mini-lit/dist/Select.js'
 import {
   Dialog,
@@ -25,8 +26,11 @@ import {
   DialogHeader
 } from '@mariozechner/mini-lit/dist/Dialog.js'
 import { Button } from '@mariozechner/mini-lit/dist/Button.js'
+import { Input } from '@mariozechner/mini-lit/dist/Input.js'
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   Diff,
   Folder,
   FolderOpen,
@@ -93,6 +97,32 @@ type AgentStreamEvent =
 
 type ChatNotificationClickEvent = {
   chatId: string
+}
+
+type QuestionPromptQuestion = {
+  index: number
+  question: string
+  topic: string
+  options: string[]
+}
+
+type QuestionPromptEvent = {
+  chatId: string
+  toolCallId: string
+  questions: QuestionPromptQuestion[]
+}
+
+type QuestionDraft = {
+  selectedOption: string
+  customAnswer: string
+}
+
+type QuestionPromptState = {
+  chatId: string
+  toolCallId: string
+  questions: QuestionPromptQuestion[]
+  drafts: Record<string, QuestionDraft>
+  currentIndex: number
 }
 
 type TerminalSessionSummary = {
@@ -194,6 +224,7 @@ interface AppState extends PersistedState {
   reviewLoading: boolean
   reviewError: string | null
   reviewLastLoadedWorkspacePath: string
+  activeQuestionPrompt: QuestionPromptState | null
 }
 
 const STORAGE_KEY = 'pi-ui.chats.v5'
@@ -332,7 +363,8 @@ const loadState = (): AppState => {
         expandedReviewFiles: new Set<string>(),
         reviewLoading: false,
         reviewError: null,
-        reviewLastLoadedWorkspacePath: ''
+        reviewLastLoadedWorkspacePath: '',
+        activeQuestionPrompt: null
       }
     }
   } catch (error) {
@@ -365,7 +397,8 @@ const loadState = (): AppState => {
     expandedReviewFiles: new Set<string>(),
     reviewLoading: false,
     reviewError: null,
-    reviewLastLoadedWorkspacePath: ''
+    reviewLastLoadedWorkspacePath: '',
+    activeQuestionPrompt: null
   }
 }
 
@@ -375,6 +408,7 @@ let folderPickerInFlight = false
 let unsubscribeStream: (() => void) | undefined
 let unsubscribeTerminal: (() => void) | undefined
 let unsubscribeChatNotificationClick: (() => void) | undefined
+let unsubscribeQuestionPrompt: (() => void) | undefined
 let composerTextarea: HTMLTextAreaElement | null = null
 let chatScrollContainer: HTMLDivElement | null = null
 const terminalInstances = new Map<string, { terminal: XTerm; fitAddon: FitAddon }>()
@@ -584,6 +618,29 @@ const disposeTerminalInstance = (terminalId: string): void => {
 
 export const setAppChangeListener = (listener: () => void): void => {
   notifyChange = listener
+}
+
+export const setQuestionPromptCleanup = (
+  subscribe: (listener: (event: QuestionPromptEvent) => void) => () => void
+): void => {
+  unsubscribeQuestionPrompt?.()
+  unsubscribeQuestionPrompt = subscribe((event) => {
+    updateState((current) => ({
+      ...current,
+      activeQuestionPrompt: {
+        chatId: event.chatId,
+        toolCallId: event.toolCallId,
+        questions: event.questions,
+        currentIndex: 0,
+        drafts: Object.fromEntries(
+          event.questions.map((question) => [
+            question.topic,
+            { selectedOption: '', customAnswer: '' } satisfies QuestionDraft
+          ])
+        )
+      }
+    }))
+  })
 }
 
 export const setTerminalCleanup = (
@@ -878,6 +935,198 @@ const updateState = (updater: (current: AppState) => AppState): void => {
   triggerChange()
   queueMicrotask(syncComposerHeight)
   queueMicrotask(scheduleTerminalFit)
+}
+
+const updateQuestionDraft = (
+  topic: string,
+  updater: (draft: QuestionDraft) => QuestionDraft
+): void => {
+  updateState((current) => {
+    if (!current.activeQuestionPrompt) return current
+
+    return {
+      ...current,
+      activeQuestionPrompt: {
+        ...current.activeQuestionPrompt,
+        drafts: {
+          ...current.activeQuestionPrompt.drafts,
+          [topic]: updater(
+            current.activeQuestionPrompt.drafts[topic] ?? { selectedOption: '', customAnswer: '' }
+          )
+        }
+      }
+    }
+  })
+}
+
+const setQuestionPromptPage = (nextIndex: number): void => {
+  updateState((current) => {
+    if (!current.activeQuestionPrompt) return current
+
+    const maxIndex = Math.max(0, current.activeQuestionPrompt.questions.length - 1)
+    return {
+      ...current,
+      activeQuestionPrompt: {
+        ...current.activeQuestionPrompt,
+        currentIndex: Math.min(maxIndex, Math.max(0, nextIndex))
+      }
+    }
+  })
+}
+
+const closeQuestionPrompt = async (cancelled: boolean): Promise<void> => {
+  const prompt = state.activeQuestionPrompt
+  if (!prompt) return
+
+  if (cancelled) {
+    await window.api.submitQuestionResponse({ toolCallId: prompt.toolCallId, cancelled: true })
+    updateState((current) => ({ ...current, activeQuestionPrompt: null }))
+    return
+  }
+
+  const answers = prompt.questions.map((question) => {
+    const draft = prompt.drafts[question.topic] ?? { selectedOption: '', customAnswer: '' }
+    const answer = draft.customAnswer.trim() || draft.selectedOption.trim()
+    return {
+      topic: question.topic,
+      question: question.question,
+      answer
+    }
+  })
+
+  if (answers.some((answer) => !answer.answer)) {
+    return
+  }
+
+  await window.api.submitQuestionResponse({
+    toolCallId: prompt.toolCallId,
+    answers
+  })
+
+  updateState((current) => ({ ...current, activeQuestionPrompt: null }))
+}
+
+const renderInlineQuestionPrompt = (prompt: QuestionPromptState): TemplateResult => {
+  const question = prompt.questions[prompt.currentIndex]
+  const draft = prompt.drafts[question.topic] ?? {
+    selectedOption: '',
+    customAnswer: ''
+  }
+  const isFirst = prompt.currentIndex === 0
+  const isLast = prompt.currentIndex === prompt.questions.length - 1
+
+  return html`
+    <section class="mb-3 rounded-2xl border border-white/10 bg-[#242424] p-4">
+      <div class="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div class="text-[11px] font-medium uppercase tracking-[0.2em] text-[#8f8f8f]">
+            Question
+          </div>
+          <div class="mt-1 text-sm text-[#d7d7d7]">
+            Vector needs a few quick answers before continuing.
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-[#cfcfcf] transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+            ?disabled=${isFirst}
+            @click=${() => setQuestionPromptPage(prompt.currentIndex - 1)}
+          >
+            ${icon(ChevronLeft, 'sm')}
+          </button>
+          <div class="min-w-[44px] text-center text-xs font-medium text-[#a9a9a9]">
+            ${prompt.currentIndex + 1}/${prompt.questions.length}
+          </div>
+          <button
+            type="button"
+            class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-[#cfcfcf] transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+            ?disabled=${isLast}
+            @click=${() => setQuestionPromptPage(prompt.currentIndex + 1)}
+          >
+            ${icon(ChevronRight, 'sm')}
+          </button>
+        </div>
+      </div>
+
+      <section class="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+        <div class="mb-3">
+          <div class="text-xs font-medium uppercase tracking-[0.18em] text-[#8f8f8f]">
+            ${question.topic}
+          </div>
+          <div class="mt-1 text-sm font-medium text-white">
+            ${question.index}. ${question.question}
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          ${question.options.map((option) =>
+            Checkbox({
+              checked: draft.selectedOption === option && draft.customAnswer.trim() === '',
+              label: option,
+              onChange: (checked) => {
+                updateQuestionDraft(question.topic, (currentDraft) => ({
+                  ...currentDraft,
+                  selectedOption: checked ? option : '',
+                  customAnswer: checked ? '' : currentDraft.customAnswer
+                }))
+              },
+              className:
+                'rounded-md border border-white/8 bg-black/10 px-3 py-2 text-sm text-white'
+            })
+          )}
+        </div>
+
+        <div class="mt-3">
+          ${Input({
+            value: draft.customAnswer,
+            placeholder: 'Own answer',
+            className: 'w-full',
+            onInput: (event) => {
+              const nextValue = (event.target as HTMLInputElement).value
+              updateQuestionDraft(question.topic, (currentDraft) => ({
+                ...currentDraft,
+                selectedOption: nextValue.trim() ? '' : currentDraft.selectedOption,
+                customAnswer: nextValue
+              }))
+            }
+          })}
+        </div>
+      </section>
+
+      <div class="mt-4 flex justify-end gap-2">
+        ${Button({
+          variant: 'outline',
+          onClick: () => void closeQuestionPrompt(true),
+          children: 'Cancel'
+        })}
+        ${Button({
+          variant: 'outline',
+          onClick: () => setQuestionPromptPage(prompt.currentIndex - 1),
+          disabled: isFirst,
+          children: 'Back'
+        })}
+        ${Button({
+          variant: 'outline',
+          onClick: () => setQuestionPromptPage(prompt.currentIndex + 1),
+          disabled: isLast,
+          children: 'Next'
+        })}
+        ${Button({
+          onClick: () => void closeQuestionPrompt(false),
+          disabled: prompt.questions.some((question) => {
+            const draft = prompt.drafts[question.topic] ?? {
+              selectedOption: '',
+              customAnswer: ''
+            }
+            return !draft.selectedOption.trim() && !draft.customAnswer.trim()
+          }),
+          children: 'Continue'
+        })}
+      </div>
+    </section>
+  `
 }
 
 const getActiveWorkspacePath = (): string => {
@@ -2314,6 +2563,7 @@ export const App = (): TemplateResult => {
 
   const activeWorkspace = getActiveWorkspace()
   const activeChat = getActiveChat()
+  const activeQuestionPrompt = state.activeQuestionPrompt
   const hasWorkspace = activeWorkspace.path !== DEFAULT_WORKSPACE_PATH
   const isSending = activeChat ? isChatRunning(activeChat.id) : false
   const rightControlsStyle = state.reviewSidebarOpen
@@ -2388,6 +2638,8 @@ export const App = (): TemplateResult => {
                 <div
                   class="relative w-full max-w-[760px] rounded-[24px] border border-[#505050] bg-[#3a3a3a] px-[18px] pb-3 pt-2.5"
                 >
+                  ${activeQuestionPrompt ? renderInlineQuestionPrompt(activeQuestionPrompt) : ''}
+
                   <textarea
                     class="min-h-[74px] max-h-[210px] w-full resize-none overflow-y-hidden bg-transparent pb-1 text-[18px] font-medium leading-7 text-[#f5f5f5] outline-none placeholder:text-[#a3a3a3] disabled:cursor-not-allowed disabled:opacity-70"
                     style="scrollbar-gutter: stable;"
@@ -2562,6 +2814,7 @@ export const App = (): TemplateResult => {
           })}
         `
       })}
+
     </div>
   `
 }

@@ -13,16 +13,26 @@ import { homedir } from 'os'
 import { basename, join, resolve } from 'path'
 import { promisify } from 'util'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+import { Type } from '@mariozechner/pi-ai'
 import { spawn, type IPty } from 'node-pty'
 import * as Diff from 'diff'
 import {
   AuthStorage,
   createAgentSession,
-  createCodingTools,
+  createBashTool,
+  createEditTool,
+  createFindTool,
+  createGrepTool,
+  createLsTool,
+  createReadTool,
+  createWriteTool,
+  DefaultResourceLoader,
   ModelRegistry,
+  type ToolDefinition,
   SessionManager
 } from '../../node_modules/@mariozechner/pi-coding-agent/dist/index.js'
 import icon from '../../resources/icon.png?asset'
+import { VECTOR_SYSTEM_PROMPT } from './vector-system-prompt'
 
 type PiSession = Awaited<ReturnType<typeof createAgentSession>>['session']
 
@@ -103,6 +113,31 @@ type StreamEvent =
   | { type: 'end'; chatId: string; requestId: string }
   | { type: 'error'; chatId: string; requestId: string; error: string }
 
+type QuestionPromptQuestion = {
+  index: number
+  question: string
+  topic: string
+  options: string[]
+}
+
+type QuestionPromptEvent = {
+  chatId: string
+  toolCallId: string
+  questions: QuestionPromptQuestion[]
+}
+
+type QuestionAnswer = {
+  topic: string
+  question: string
+  answer: string
+}
+
+type QuestionSubmitPayload = {
+  toolCallId: string
+  cancelled?: boolean
+  answers?: QuestionAnswer[]
+}
+
 type ChatNotificationClickEvent = {
   chatId: string
 }
@@ -122,6 +157,12 @@ const sessionCache = new Map<string, PiSession>()
 const terminalSessions = new Map<string, TerminalRecord>()
 let terminalSequence = 0
 const execFileAsync = promisify(execFile)
+const pendingQuestionRequests = new Map<
+  string,
+  {
+    resolve: (payload: QuestionSubmitPayload) => void
+  }
+>()
 
 const emitStreamEvent = (payload: StreamEvent): void => {
   mainWindow?.webContents.send('agent:stream-event', payload)
@@ -134,6 +175,135 @@ const emitTerminalEvent = (payload: TerminalEvent): void => {
 const emitChatNotificationClickEvent = (payload: ChatNotificationClickEvent): void => {
   mainWindow?.webContents.send('chat-notification:click', payload)
 }
+
+const emitQuestionPromptEvent = (payload: QuestionPromptEvent): void => {
+  mainWindow?.webContents.send('question:prompt', payload)
+}
+
+const parseQuestionnaire = (questionnaire: string): QuestionPromptQuestion[] => {
+  const lines = questionnaire
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const questions: QuestionPromptQuestion[] = []
+  let current: QuestionPromptQuestion | null = null
+  let pendingTopic: string | null = null
+
+  for (const line of lines) {
+    const questionMatch = line.match(/^(?:\d+\.\s*)?\[question\]\s*(.+)$/i)
+    if (questionMatch) {
+      current = {
+        index: questions.length + 1,
+        question: questionMatch[1].trim(),
+        topic: pendingTopic ?? `Question-${questions.length + 1}`,
+        options: []
+      }
+      questions.push(current)
+      pendingTopic = null
+      continue
+    }
+
+    const topicMatch = line.match(/^\[topic\]\s*(.+)$/i)
+    if (topicMatch) {
+      if (current && current.options.length === 0) {
+        current.topic = topicMatch[1].trim()
+      } else {
+        pendingTopic = topicMatch[1].trim()
+      }
+      continue
+    }
+
+    if (!current) {
+      continue
+    }
+
+    const optionMatch = line.match(/^\[option\]\s*(.+)$/i)
+    if (optionMatch) {
+      current.options.push(optionMatch[1].trim())
+    }
+  }
+
+  if (questions.length < 1 || questions.length > 4) {
+    throw new Error('question tool requires 1-4 questions')
+  }
+
+  for (const question of questions) {
+    if (!question.question) {
+      throw new Error('question tool received an empty question')
+    }
+    if (!question.topic) {
+      throw new Error(`question tool is missing a topic for question ${question.index}`)
+    }
+    if (question.options.length < 2 || question.options.length > 4) {
+      throw new Error(
+        `question tool requires 2-4 options for "${question.topic}", received ${question.options.length}`
+      )
+    }
+  }
+
+  return questions
+}
+
+const createQuestionTool = (chatId: string): ToolDefinition => ({
+  name: 'question',
+  label: 'Question',
+  description:
+    'Ask the user 1-4 short multiple-choice clarification questions and receive structured answers.',
+  promptSnippet: 'Ask the user a short multiple-choice questionnaire when clarification is required.',
+  parameters: Type.Object({
+    questionnaire: Type.String({
+      description:
+        'A plain-text questionnaire using [question], [topic], and [option] lines with 1-4 questions and 2-4 options per question.'
+    })
+  }),
+  async execute(toolCallId, params, signal) {
+    const questionnaire =
+      params && typeof params === 'object' && 'questionnaire' in params
+        ? String((params as { questionnaire: string }).questionnaire ?? '')
+        : ''
+    const questions = parseQuestionnaire(questionnaire)
+
+    if (!mainWindow) {
+      throw new Error('Main window is not available')
+    }
+
+    const response = await new Promise<QuestionSubmitPayload>((resolve, reject) => {
+      pendingQuestionRequests.set(toolCallId, { resolve })
+
+      const handleAbort = (): void => {
+        pendingQuestionRequests.delete(toolCallId)
+        reject(new Error('question tool cancelled'))
+      }
+
+      if (signal?.aborted) {
+        handleAbort()
+        return
+      }
+
+      signal?.addEventListener('abort', handleAbort, { once: true })
+      emitQuestionPromptEvent({ chatId, toolCallId, questions })
+    })
+
+    pendingQuestionRequests.delete(toolCallId)
+
+    if (response.cancelled) {
+      throw new Error('question tool cancelled by user')
+    }
+
+    const answers = response.answers ?? []
+    if (answers.length !== questions.length) {
+      throw new Error('question tool did not receive a complete response')
+    }
+
+    const text = answers.map((answer) => `- ${answer.topic}: ${answer.answer}`).join('\n')
+
+    return {
+      content: [{ type: 'text', text: `User answers:\n${text}` }],
+      details: { answers }
+    }
+  }
+})
 
 const focusMainWindow = (): void => {
   if (!mainWindow) return
@@ -559,12 +729,28 @@ const getOrCreateSession = async (
     return cached
   }
 
+  const resourceLoader = new DefaultResourceLoader({
+    cwd,
+    systemPromptOverride: () => VECTOR_SYSTEM_PROMPT
+  })
+  await resourceLoader.reload()
+
   const { session } = await createAgentSession({
     cwd,
     model,
     authStorage,
     modelRegistry,
-    tools: createCodingTools(cwd),
+    resourceLoader,
+    tools: [
+      createReadTool(cwd),
+      createBashTool(cwd),
+      createEditTool(cwd),
+      createWriteTool(cwd),
+      createGrepTool(cwd),
+      createFindTool(cwd),
+      createLsTool(cwd)
+    ],
+    customTools: [createQuestionTool(chatId)],
     sessionManager: SessionManager.inMemory()
   })
 
@@ -787,6 +973,19 @@ app.whenReady().then(() => {
         const message = error instanceof Error ? error.message : String(error)
         return { ok: false as const, error: message }
       }
+    }
+  )
+
+  ipcMain.handle(
+    'question:submit',
+    async (_event, payload: QuestionSubmitPayload) => {
+      const request = pendingQuestionRequests.get(payload.toolCallId)
+      if (!request) {
+        return { ok: false as const, error: 'Question request not found' }
+      }
+
+      request.resolve(payload)
+      return { ok: true as const }
     }
   )
 
