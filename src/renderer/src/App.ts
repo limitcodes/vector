@@ -229,7 +229,7 @@ interface AppState extends PersistedState {
 
 const STORAGE_KEY = 'pi-ui.chats.v5'
 const DEFAULT_WORKSPACE_PATH = '__no-folder__'
-const REVIEW_SIDEBAR_WIDTH = 584
+const REVIEW_SIDEBAR_WIDTH = 720
 const REVIEW_REFRESH_DEBOUNCE_MS = 180
 const REVIEW_DIFF_CONTEXT_LINES = 3
 
@@ -2118,54 +2118,44 @@ const renderReviewDiff = (reviewFile: ReviewFile): TemplateResult => {
   const rows = getReviewDiffRows(reviewFile)
 
   return html`
-    <div class="overflow-hidden rounded-xl border border-[#3b3b3b] bg-[#232323]">
-      <div class="border-b border-[#343434] bg-[#272727] px-3 py-2">
-        <div class="flex items-center gap-3 text-[11px] text-[#9a9a9a]">
-          <span class="font-mono">${reviewFile.path}</span>
-          <span class="text-[#73d07f]">+${reviewFile.added}</span>
-          <span class="text-[#ef8e8e]">-${reviewFile.removed}</span>
-        </div>
-      </div>
-
-      <div class="max-h-[460px] overflow-auto">
-        ${rows.map((row) => {
-          if (row.kind === 'ellipsis') {
-            return html`
-              <div class="border-y border-[#333333] bg-[#292929] px-4 py-1.5 text-center text-[11px] text-[#858585]">
-                ${row.text}
-              </div>
-            `
-          }
-
-          const rowTone =
-            row.kind === 'add'
-              ? 'bg-[#0f2a18]'
-              : row.kind === 'remove'
-                ? 'bg-[#321a1a]'
-                : 'bg-transparent'
-
+    <div class="max-h-[460px] overflow-auto">
+      ${rows.map((row) => {
+        if (row.kind === 'ellipsis') {
           return html`
-            <div
-              class=${[
-                'grid grid-cols-[56px_56px_minmax(0,1fr)] items-start gap-0 border-b border-[#2f2f2f] text-[12px] leading-5',
-                rowTone
-              ].join(' ')}
-            >
-              <div class="select-none px-3 py-1 text-right font-mono text-[#666666]">
-                ${formatReviewLineNumber(row.leftLineNumber)}
-              </div>
-              <div class="select-none px-3 py-1 text-right font-mono text-[#666666]">
-                ${formatReviewLineNumber(row.rightLineNumber)}
-              </div>
-              <pre class="m-0 overflow-x-auto px-3 py-1 font-mono text-[#e6e6e6]">${row.kind === 'add'
-                ? '+'
-                : row.kind === 'remove'
-                  ? '-'
-                  : ' '}${row.text}</pre>
+            <div class="border-y border-[#333333] bg-[#292929] px-4 py-1.5 text-center text-[11px] text-[#858585]">
+              ${row.text}
             </div>
           `
-        })}
-      </div>
+        }
+
+        const rowTone =
+          row.kind === 'add'
+            ? 'bg-[#0f2a18]'
+            : row.kind === 'remove'
+              ? 'bg-[#321a1a]'
+              : 'bg-transparent'
+
+        return html`
+          <div
+            class=${[
+              'grid grid-cols-[56px_56px_minmax(0,1fr)] items-start gap-0 border-b border-[#2f2f2f] text-[12px] leading-5',
+              rowTone
+            ].join(' ')}
+          >
+            <div class="select-none px-3 py-1 text-right font-mono text-[#666666]">
+              ${formatReviewLineNumber(row.leftLineNumber)}
+            </div>
+            <div class="select-none px-3 py-1 text-right font-mono text-[#666666]">
+              ${formatReviewLineNumber(row.rightLineNumber)}
+            </div>
+            <pre class="m-0 overflow-x-auto px-3 py-1 font-mono text-[#e6e6e6]">${row.kind === 'add'
+              ? '+'
+              : row.kind === 'remove'
+                ? '-'
+                : ' '}${row.text}</pre>
+          </div>
+        `
+      })}
     </div>
   `
 }
@@ -2185,8 +2175,7 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
     >
       <div class="flex items-start justify-between gap-3 border-b border-[#3b3b3b] px-4 pb-3 pt-4">
         <div class="min-w-0">
-          <div class="flex items-center gap-2 text-[#f5f5f5]">
-            ${icon(Diff, 'sm')}
+          <div class="text-[#f5f5f5]">
             <span class="text-[15px] font-semibold">Review changes</span>
           </div>
           <p class="mt-1 text-[12px] leading-5 text-[#9a9a9a]">
@@ -2205,14 +2194,6 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
             @click=${() => scheduleReviewRefresh({ immediate: true, force: true })}
           >
             ${icon(RefreshCw, 'sm', state.reviewLoading ? 'animate-spin' : '')}
-          </button>
-          <button
-            type="button"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-[#b8b8b8] transition-colors hover:bg-[#343434] hover:text-[#f5f5f5]"
-            title="Close review sidebar"
-            @click=${toggleReviewSidebar}
-          >
-            ${renderReviewChevron('-rotate-90')}
           </button>
         </div>
       </div>
@@ -2244,15 +2225,15 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
                     </div>
                   `
                 : html`
-                    <div class="space-y-2">
+                    <div class="overflow-hidden rounded-2xl border border-[#3b3b3b] bg-[#2d2d2d]">
                       ${repeat(
                         state.reviewFiles,
                         (reviewFile) => reviewFile.path,
-                        (reviewFile) => {
+                        (reviewFile, index) => {
                           const isExpanded = state.expandedReviewFiles.has(reviewFile.path)
 
                           return html`
-                            <section class="overflow-hidden rounded-2xl border border-[#3b3b3b] bg-[#2d2d2d]">
+                            <section class=${index > 0 ? 'border-t border-[#3b3b3b]' : ''}>
                               <button
                                 type="button"
                                 class="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#343434]"
