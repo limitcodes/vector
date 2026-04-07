@@ -227,7 +227,8 @@ interface AppState extends PersistedState {
   activeQuestionPrompt: QuestionPromptState | null
 }
 
-const STORAGE_KEY = 'pi-ui.chats.v5'
+const STORAGE_KEY = 'vector.chats.v5'
+const LEGACY_STORAGE_KEYS = ['pi-ui.chats.v5']
 const DEFAULT_WORKSPACE_PATH = '__no-folder__'
 const REVIEW_SIDEBAR_WIDTH = 720
 const REVIEW_REFRESH_DEBOUNCE_MS = 180
@@ -297,7 +298,9 @@ const getChatsForWorkspace = (workspacePath: string, chats: Chat[]): Chat[] => {
 
 const loadState = (): AppState => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw =
+      localStorage.getItem(STORAGE_KEY) ??
+      LEGACY_STORAGE_KEYS.map((key) => localStorage.getItem(key)).find((value) => Boolean(value))
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedState>
       const workspaces = Array.isArray(parsed.workspaces) ? parsed.workspaces : []

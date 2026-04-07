@@ -854,7 +854,7 @@ function createWindow(): void {
     height: 960,
     minWidth: 1200,
     minHeight: 760,
-    title: 'pi UI',
+    title: 'Vector',
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
