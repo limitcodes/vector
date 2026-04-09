@@ -424,8 +424,8 @@ let reviewRefreshRequestId = 0
 const syncComposerHeight = (): void => {
   if (!composerTextarea) return
 
-  const minHeight = 74
-  const maxHeight = 210
+  const minHeight = 56
+  const maxHeight = 168
   composerTextarea.style.height = '0px'
   const nextHeight = Math.min(Math.max(composerTextarea.scrollHeight, minHeight), maxHeight)
   composerTextarea.style.height = `${nextHeight}px`
@@ -2640,7 +2640,7 @@ export const App = (): TemplateResult => {
                   ${activeQuestionPrompt ? renderInlineQuestionPrompt(activeQuestionPrompt) : ''}
 
                   <textarea
-                    class="min-h-[74px] max-h-[210px] w-full resize-none overflow-y-hidden bg-transparent pb-1 text-[18px] font-medium leading-7 text-[#f5f5f5] outline-none placeholder:text-[#a3a3a3] disabled:cursor-not-allowed disabled:opacity-70"
+                    class="min-h-[56px] max-h-[168px] w-full resize-none overflow-y-hidden bg-transparent pb-1 text-base font-medium leading-6 text-[#f5f5f5] outline-none placeholder:text-[#a3a3a3] disabled:cursor-not-allowed disabled:opacity-70"
                     style="scrollbar-gutter: stable;"
                     placeholder=${hasWorkspace ? 'Build anything' : 'Open a folder to start'}
                     .value=${state.composer}
