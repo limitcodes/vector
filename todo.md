@@ -6,8 +6,10 @@
 
 ~~Build Vector agent~~
 
-system reminders + linters (hidden user messages)
+~~system reminders (hidden user messages)~~
 
 ~~Settings footer in sidebar (Logout/Login from accounts)~~
 
 Browser? Dont see the use of it
+
+linters
