@@ -17,7 +17,6 @@ const scrollToBottom = (): DirectiveResult => {
   })
 }
 import { icon } from '@mariozechner/mini-lit/dist/icons.js'
-import { Checkbox } from '@mariozechner/mini-lit/dist/Checkbox.js'
 import { Select } from '@mariozechner/mini-lit/dist/Select.js'
 import {
   Dialog,
@@ -26,11 +25,8 @@ import {
   DialogHeader
 } from '@mariozechner/mini-lit/dist/Dialog.js'
 import { Button } from '@mariozechner/mini-lit/dist/Button.js'
-import { Input } from '@mariozechner/mini-lit/dist/Input.js'
 import {
   AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
   Diff,
   Folder,
   FolderOpen,
@@ -690,19 +686,22 @@ export const setQuestionPromptCleanup = (
 ): void => {
   unsubscribeQuestionPrompt?.()
   unsubscribeQuestionPrompt = subscribe((event) => {
+    const drafts = Object.fromEntries(
+      event.questions.map((question) => [
+        question.topic,
+        { selectedOption: '', customAnswer: '' } satisfies QuestionDraft
+      ])
+    )
+
     updateState((current) => ({
       ...current,
+      composer: '',
       activeQuestionPrompt: {
         chatId: event.chatId,
         toolCallId: event.toolCallId,
         questions: event.questions,
         currentIndex: 0,
-        drafts: Object.fromEntries(
-          event.questions.map((question) => [
-            question.topic,
-            { selectedOption: '', customAnswer: '' } satisfies QuestionDraft
-          ])
-        )
+        drafts
       }
     }))
   })
@@ -1008,16 +1007,20 @@ const updateQuestionDraft = (
 ): void => {
   updateState((current) => {
     if (!current.activeQuestionPrompt) return current
+    const activePrompt = current.activeQuestionPrompt
+    const currentQuestion = activePrompt.questions[activePrompt.currentIndex]
+    const prevDraft = activePrompt.drafts[topic] ?? { selectedOption: '', customAnswer: '' }
+    const nextDraft = updater(prevDraft)
+    const shouldSyncComposer = currentQuestion?.topic === topic
 
     return {
       ...current,
+      composer: shouldSyncComposer ? nextDraft.customAnswer : current.composer,
       activeQuestionPrompt: {
-        ...current.activeQuestionPrompt,
+        ...activePrompt,
         drafts: {
-          ...current.activeQuestionPrompt.drafts,
-          [topic]: updater(
-            current.activeQuestionPrompt.drafts[topic] ?? { selectedOption: '', customAnswer: '' }
-          )
+          ...activePrompt.drafts,
+          [topic]: nextDraft
         }
       }
     }
@@ -1028,12 +1031,20 @@ const setQuestionPromptPage = (nextIndex: number): void => {
   updateState((current) => {
     if (!current.activeQuestionPrompt) return current
 
-    const maxIndex = Math.max(0, current.activeQuestionPrompt.questions.length - 1)
+    const activePrompt = current.activeQuestionPrompt
+    const maxIndex = Math.max(0, activePrompt.questions.length - 1)
+    const nextPageIndex = Math.min(maxIndex, Math.max(0, nextIndex))
+    const nextQuestion = activePrompt.questions[nextPageIndex]
+    const nextDraft = nextQuestion
+      ? (activePrompt.drafts[nextQuestion.topic] ?? { selectedOption: '', customAnswer: '' })
+      : { selectedOption: '', customAnswer: '' }
+
     return {
       ...current,
+      composer: nextDraft.customAnswer,
       activeQuestionPrompt: {
-        ...current.activeQuestionPrompt,
-        currentIndex: Math.min(maxIndex, Math.max(0, nextIndex))
+        ...activePrompt,
+        currentIndex: nextPageIndex
       }
     }
   })
@@ -1045,7 +1056,7 @@ const closeQuestionPrompt = async (cancelled: boolean): Promise<void> => {
 
   if (cancelled) {
     await window.api.submitQuestionResponse({ toolCallId: prompt.toolCallId, cancelled: true })
-    updateState((current) => ({ ...current, activeQuestionPrompt: null }))
+    updateState((current) => ({ ...current, composer: '', activeQuestionPrompt: null }))
     return
   }
 
@@ -1068,7 +1079,7 @@ const closeQuestionPrompt = async (cancelled: boolean): Promise<void> => {
     answers
   })
 
-  updateState((current) => ({ ...current, activeQuestionPrompt: null }))
+  updateState((current) => ({ ...current, composer: '', activeQuestionPrompt: null }))
 }
 
 const renderInlineQuestionPrompt = (prompt: QuestionPromptState): TemplateResult => {
@@ -1081,83 +1092,36 @@ const renderInlineQuestionPrompt = (prompt: QuestionPromptState): TemplateResult
   const isLast = prompt.currentIndex === prompt.questions.length - 1
 
   return html`
-    <section class="mb-3 rounded-2xl border border-white/10 bg-[#242424] p-4">
-      <div class="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <div class="text-[11px] font-medium uppercase tracking-[0.2em] text-[#8f8f8f]">
-            Question
-          </div>
-          <div class="mt-1 text-sm text-[#d7d7d7]">
-            Vector needs a few quick answers before continuing.
-          </div>
-        </div>
+    <section class="mb-3 rounded-2xl bg-[#242424] px-4 py-3">
+      <div class="mb-3 text-sm font-medium text-white">${question.index}. ${question.question}</div>
 
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-[#cfcfcf] transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
-            ?disabled=${isFirst}
-            @click=${() => setQuestionPromptPage(prompt.currentIndex - 1)}
-          >
-            ${icon(ChevronLeft, 'sm')}
-          </button>
-          <div class="min-w-[44px] text-center text-xs font-medium text-[#a9a9a9]">
-            ${prompt.currentIndex + 1}/${prompt.questions.length}
-          </div>
-          <button
-            type="button"
-            class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-[#cfcfcf] transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
-            ?disabled=${isLast}
-            @click=${() => setQuestionPromptPage(prompt.currentIndex + 1)}
-          >
-            ${icon(ChevronRight, 'sm')}
-          </button>
-        </div>
-      </div>
-
-      <section class="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-        <div class="mb-3">
-          <div class="text-xs font-medium uppercase tracking-[0.18em] text-[#8f8f8f]">
-            ${question.topic}
-          </div>
-          <div class="mt-1 text-sm font-medium text-white">
-            ${question.index}. ${question.question}
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-2">
-          ${question.options.map((option) =>
-            Checkbox({
-              checked: draft.selectedOption === option && draft.customAnswer.trim() === '',
-              label: option,
-              onChange: (checked) => {
+      <div class="flex flex-col gap-1.5" role="radiogroup" aria-label=${question.question}>
+        ${question.options.map((option) => {
+          const selected = draft.selectedOption === option && draft.customAnswer.trim() === ''
+          return html`
+            <button
+              type="button"
+              role="radio"
+              aria-checked=${selected ? 'true' : 'false'}
+              class=${[
+                'flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors',
+                selected
+                  ? 'bg-white/[0.14] text-white'
+                  : 'text-[#d7d7d7] hover:bg-white/[0.06] hover:text-white'
+              ].join(' ')}
+              @click=${() => {
                 updateQuestionDraft(question.topic, (currentDraft) => ({
                   ...currentDraft,
-                  selectedOption: checked ? option : '',
-                  customAnswer: checked ? '' : currentDraft.customAnswer
+                  selectedOption: option,
+                  customAnswer: ''
                 }))
-              },
-              className: 'rounded-md border border-white/8 bg-black/10 px-3 py-2 text-sm text-white'
-            })
-          )}
-        </div>
-
-        <div class="mt-3">
-          ${Input({
-            value: draft.customAnswer,
-            placeholder: 'Own answer',
-            className: 'w-full',
-            onInput: (event) => {
-              const nextValue = (event.target as HTMLInputElement).value
-              updateQuestionDraft(question.topic, (currentDraft) => ({
-                ...currentDraft,
-                selectedOption: nextValue.trim() ? '' : currentDraft.selectedOption,
-                customAnswer: nextValue
-              }))
-            }
-          })}
-        </div>
-      </section>
+              }}
+            >
+              <span>${option}</span>
+            </button>
+          `
+        })}
+      </div>
 
       <div class="mt-4 flex justify-end gap-2">
         ${Button({
@@ -1349,6 +1313,35 @@ const loginCodex = async (): Promise<void> => {
 }
 
 const setComposer = (value: string): void => {
+  const activePrompt = state.activeQuestionPrompt
+  if (activePrompt) {
+    const activeQuestion = activePrompt.questions[activePrompt.currentIndex]
+    if (activeQuestion) {
+      const currentDraft = activePrompt.drafts[activeQuestion.topic] ?? {
+        selectedOption: '',
+        customAnswer: ''
+      }
+      state = {
+        ...state,
+        composer: value,
+        activeQuestionPrompt: {
+          ...activePrompt,
+          drafts: {
+            ...activePrompt.drafts,
+            [activeQuestion.topic]: {
+              ...currentDraft,
+              selectedOption: value.trim() ? '' : currentDraft.selectedOption,
+              customAnswer: value
+            }
+          }
+        }
+      }
+      triggerChange()
+      queueMicrotask(syncComposerHeight)
+      return
+    }
+  }
+
   state = {
     ...state,
     composer: value
@@ -1768,6 +1761,7 @@ const sendMessage = async (): Promise<void> => {
   const composerImages = state.composerImages
 
   if (
+    state.activeQuestionPrompt ||
     (!content && composerImages.length === 0) ||
     !activeChat ||
     workspace.path === DEFAULT_WORKSPACE_PATH ||
@@ -2906,6 +2900,7 @@ export const App = (): TemplateResult => {
                           : 'Send message'
                       }
                       ?disabled=${
+                        state.activeQuestionPrompt ||
                         (!(state.composer.trim() || state.composerImages.length > 0) ||
                           !activeChat) &&
                         !isSending
