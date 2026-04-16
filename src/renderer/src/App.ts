@@ -230,6 +230,7 @@ interface AppState extends PersistedState {
   settingsDialogOpen: boolean
   deleteChatId: string | null
   terminalDockOpen: boolean
+  terminalHeight: number
   terminalSessions: TerminalSessionSummary[]
   activeTerminalId: string
   reviewSidebarOpen: boolean
@@ -247,6 +248,9 @@ const DEFAULT_WORKSPACE_PATH = '__no-folder__'
 const REVIEW_SIDEBAR_WIDTH = 720
 const REVIEW_REFRESH_DEBOUNCE_MS = 180
 const REVIEW_DIFF_CONTEXT_LINES = 3
+const DEFAULT_TERMINAL_HEIGHT = 340
+const MIN_TERMINAL_HEIGHT = 160
+const MAX_TERMINAL_HEIGHT = 800
 
 const now = (): number => Date.now()
 
@@ -374,6 +378,7 @@ const loadState = (): AppState => {
         settingsDialogOpen: false,
         deleteChatId: null,
         terminalDockOpen: false,
+        terminalHeight: DEFAULT_TERMINAL_HEIGHT,
         terminalSessions: [],
         activeTerminalId: '',
         reviewSidebarOpen: false,
@@ -409,6 +414,7 @@ const loadState = (): AppState => {
     settingsDialogOpen: false,
     deleteChatId: null,
     terminalDockOpen: false,
+    terminalHeight: DEFAULT_TERMINAL_HEIGHT,
     terminalSessions: [],
     activeTerminalId: '',
     reviewSidebarOpen: false,
@@ -999,6 +1005,31 @@ const updateState = (updater: (current: AppState) => AppState): void => {
   triggerChange()
   queueMicrotask(syncComposerHeight)
   queueMicrotask(scheduleTerminalFit)
+}
+
+const onTerminalResizeStart = (event: MouseEvent): void => {
+  event.preventDefault()
+  const startY = event.clientY
+  const startHeight = state.terminalHeight
+
+  const onMouseMove = (moveEvent: MouseEvent): void => {
+    const deltaY = startY - moveEvent.clientY
+    const nextHeight = Math.min(
+      MAX_TERMINAL_HEIGHT,
+      Math.max(MIN_TERMINAL_HEIGHT, startHeight + deltaY)
+    )
+    updateState((current) => ({ ...current, terminalHeight: nextHeight }))
+  }
+
+  const onMouseUp = (): void => {
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = ''
+  }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+  document.body.style.cursor = 'row-resize'
 }
 
 const updateQuestionDraft = (
@@ -2695,14 +2726,19 @@ const renderTerminalDock = (): TemplateResult => {
   return html`
     <div
       class=${[
-        'terminal-dock w-full shrink-0 self-stretch flex-col overflow-hidden border-t border-[#353535] bg-[#171717] transition-all',
-        state.terminalDockOpen ? 'flex h-[340px] opacity-100' : 'hidden h-0 opacity-0'
+        'terminal-dock relative w-full shrink-0 self-stretch flex-col overflow-hidden border-t border-[#353535] bg-[#171717] transition-[opacity] duration-200',
+        state.terminalDockOpen ? 'flex opacity-100' : 'hidden h-0 opacity-0'
       ].join(' ')}
+      style=${state.terminalDockOpen ? `height: ${state.terminalHeight}px;` : ''}
     >
       <div
-        class="flex items-center justify-between gap-3 border-b border-[#2a2a2a] bg-[#171717] px-3 py-2"
+        class="group absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize transition-colors hover:bg-white/10"
+        @mousedown=${onTerminalResizeStart}
+      ></div>
+      <div
+        class="flex items-center justify-between gap-3 bg-[#171717] pr-3"
       >
-        <div class="flex min-w-0 items-center gap-2 overflow-x-auto">
+        <div class="flex min-w-0 items-end overflow-x-auto">
           ${repeat(
             state.terminalSessions,
             (terminal) => terminal.id,
@@ -2712,10 +2748,10 @@ const renderTerminalDock = (): TemplateResult => {
               return html`
                 <div
                   class=${[
-                    'flex min-w-0 items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
+                    'flex min-w-0 items-center gap-2 px-3 py-1.5 text-sm transition-colors border-r border-[#2a2a2a]',
                     isActive
-                      ? 'bg-[#3a3a3a] text-[#f5f5f5]'
-                      : 'bg-transparent text-[#b3b3b3] hover:bg-[#303030]'
+                      ? 'bg-[#000000] text-[#f5f5f5]'
+                      : 'bg-transparent text-[#b3b3b3] hover:bg-[#303030] border-b border-[#2a2a2a]'
                   ].join(' ')}
                 >
                   <button
@@ -2739,7 +2775,7 @@ const renderTerminalDock = (): TemplateResult => {
           )}
           <button
             type="button"
-            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#b3b3b3] transition-colors hover:bg-[#303030] hover:text-[#f5f5f5]"
+            class="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[#b3b3b3] transition-colors hover:bg-[#303030] hover:text-[#f5f5f5]"
             title="New Terminal"
             @click=${() => void createTerminal()}
           >
@@ -2748,7 +2784,7 @@ const renderTerminalDock = (): TemplateResult => {
         </div>
       </div>
 
-      <div class="min-h-0 flex-1 bg-[#171717]">
+      <div class="min-h-0 flex-1 bg-[#000000]">
         ${state.terminalSessions.length === 0
           ? html`
               <div class="flex h-full items-center justify-center text-sm text-[#8f8f8f]">
@@ -2763,7 +2799,7 @@ const renderTerminalDock = (): TemplateResult => {
                 return html`
                   <div
                     class=${[
-                      'h-full w-full overflow-hidden px-[10px] pb-[10px] pt-[8px]',
+                      'h-full w-full overflow-hidden',
                       isActive && state.terminalDockOpen ? 'block' : 'hidden'
                     ].join(' ')}
                     ${ref((element?: Element | null) => {
@@ -2827,8 +2863,18 @@ export const App = (): TemplateResult => {
       >
         <button
           type="button"
+          class="flex h-9 w-9 items-center justify-center rounded-lg text-[#f5f5f5] transition-all hover:bg-[#3f3f3f]"
+          aria-label="Toggle terminal"
+          title="Toggle terminal"
+          @click=${() => void toggleTerminalDock()}
+        >
+          ${icon(TerminalSquare, 'sm')}
+        </button>
+
+        <button
+          type="button"
           class=${[
-            'flex h-9 w-9 items-center justify-center rounded-lg text-[#f5f5f5] transition-all hover:bg-[#3f3f3f]',
+            'group flex h-9 items-center justify-center gap-2 rounded-lg px-2 text-[#f5f5f5] transition-all hover:bg-[#3f3f3f]',
             state.reviewSidebarOpen ? 'bg-[#3a3a3a]' : ''
           ].join(' ')}
           aria-label="Toggle review sidebar"
@@ -2836,16 +2882,18 @@ export const App = (): TemplateResult => {
           @click=${toggleReviewSidebar}
         >
           ${icon(Diff, 'sm')}
-        </button>
-
-        <button
-          type="button"
-          class="flex h-9 w-9 items-center justify-center rounded-lg text-[#f5f5f5] transition-all hover:bg-[#3f3f3f]"
-          aria-label="Toggle terminal"
-          title="Toggle terminal"
-          @click=${() => void toggleTerminalDock()}
-        >
-          ${icon(TerminalSquare, 'sm')}
+          ${state.reviewFiles.length > 0
+            ? html`
+                <div class="flex items-center gap-1.5 text-[11px] font-bold">
+                  <span class="text-[#7ee787]">
+                    +${state.reviewFiles.reduce((acc, f) => acc + f.added, 0)}
+                  </span>
+                  <span class="text-[#ff7b72]">
+                    -${state.reviewFiles.reduce((acc, f) => acc + f.removed, 0)}
+                  </span>
+                </div>
+              `
+            : ''}
         </button>
       </div>
 
