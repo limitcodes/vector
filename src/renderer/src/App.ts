@@ -441,7 +441,7 @@ let reviewRefreshRequestId = 0
 const syncComposerHeight = (): void => {
   if (!composerTextarea) return
 
-  const minHeight = 56
+  const minHeight = 40
   const maxHeight = 168
   composerTextarea.style.height = '0px'
   const nextHeight = Math.min(Math.max(composerTextarea.scrollHeight, minHeight), maxHeight)
@@ -2453,6 +2453,101 @@ const renderToolInvocation = (tool: ToolInvocation): TemplateResult => {
   const statusTone = tool.status === 'error' ? 'text-[#f28b82]' : 'text-[#8f8f8f]'
   const statusLabel = tool.status === 'error' ? 'error' : tool.status === 'running' ? 'running' : ''
 
+  let args: any = {}
+  try {
+    args = JSON.parse(tool.argsText || '{}')
+  } catch {
+    // Fallback if not valid JSON
+  }
+
+  const renderHeader = (label: string | TemplateResult): TemplateResult => html`
+    <div class="flex items-center gap-1.5 py-1 text-[#8f8f8f] select-none">
+      <span class="text-[13px] font-medium text-[#f5f5f5]">${label}</span>
+      ${statusLabel
+        ? html`<span class=${['text-[12px] font-medium', statusTone].join(' ')}
+            >${statusLabel}</span
+          >`
+        : ''}
+    </div>
+  `
+
+  if (tool.name === 'bash') {
+    return html`
+      <details class="overflow-hidden" ?open=${false}>
+        <summary
+          class="flex cursor-pointer list-none items-center gap-1.5 py-1 select-none marker:hidden text-[#8f8f8f]"
+        >
+          <span class="text-[13px] font-medium text-[#f5f5f5]">bash ${args.command || ''}</span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="shrink-0 transition-transform details-arrow"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+          ${statusLabel
+            ? html`<span class=${['text-[12px] font-medium', statusTone].join(' ')}
+                >${statusLabel}</span
+              >`
+            : ''}
+        </summary>
+        <div class="pt-2">
+          ${tool.output
+            ? html`<pre
+                class="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-[#2a2a2a] px-3 py-2 text-xs leading-5 text-[#d8d8d8]"
+              >
+${tool.output}</pre
+              >`
+            : tool.status === 'running'
+              ? html`<div class="mt-3 text-xs text-[#8f8f8f]">Waiting for output…</div>`
+              : ''}
+        </div>
+      </details>
+    `
+  }
+
+  if (tool.name === 'read') {
+    return renderHeader(html`read <span class="text-[#8ab4ff]">${args.path || ''}</span>`)
+  }
+
+  if (tool.name === 'ls') {
+    return renderHeader(html`ls <span class="text-[#8ab4ff]">${args.path || '.'}</span>`)
+  }
+
+  if (tool.name === 'find') {
+    return renderHeader(
+      html`find <span class="text-[#8ab4ff]">${args.pattern || ''}</span> in ${args.path || '.'}`
+    )
+  }
+
+  if (tool.name === 'grep') {
+    return renderHeader(
+      html`grep <span class="text-[#8ab4ff]">${args.pattern || ''}</span> in ${args.path || '.'}`
+    )
+  }
+
+  if (tool.name === 'write') {
+    const lines = (args.content || '').split('\n').length
+    return renderHeader(
+      html`write <span class="text-[#8ab4ff]">${args.path || ''}</span> <span class="text-[#7ee787]">+${lines}</span>`
+    )
+  }
+
+  if (tool.name === 'edit') {
+    const added = (args.newText || '').split('\n').length
+    const removed = (args.oldText || '').split('\n').length
+    return renderHeader(
+      html`edit <span class="text-[#8ab4ff]">${args.path || ''}</span> <span class="text-[#7ee787]">+${added}</span> <span class="text-[#ff7b72]">-${removed}</span>`
+    )
+  }
+
   return html`
     <details class="overflow-hidden" ?open=${false}>
       <summary
@@ -2492,10 +2587,10 @@ ${tool.argsText}</pre
               class="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-[#2a2a2a] px-3 py-2 text-xs leading-5 text-[#d8d8d8]"
             >
 ${tool.output}</pre
-            >`
-          : tool.status === 'running'
-            ? html`<div class="mt-3 text-xs text-[#8f8f8f]">Waiting for output…</div>`
-            : ''}
+              >`
+            : tool.status === 'running'
+              ? html`<div class="mt-3 text-xs text-[#8f8f8f]">Waiting for output…</div>`
+              : ''}
       </div>
     </details>
   `
@@ -2778,7 +2873,7 @@ export const App = (): TemplateResult => {
                 </div>
               </div>
 
-              <div class="flex shrink-0 justify-center pb-1 pt-8">
+              <div class="flex shrink-0 justify-center pb-1.5 pt-1.5">
                 <div
                   class="relative w-full max-w-[760px] rounded-[24px] border border-[#333] bg-[#1a1a1a] shadow-xl shadow-black/20 px-[18px] pb-3 pt-2.5"
                 >
@@ -2833,7 +2928,7 @@ export const App = (): TemplateResult => {
                   }
 
                   <textarea
-                    class="min-h-[56px] max-h-[168px] w-full resize-none overflow-y-hidden bg-transparent pb-1 text-base font-medium leading-6 text-[#f5f5f5] outline-none placeholder:text-[#a3a3a3] disabled:cursor-not-allowed disabled:opacity-70"
+                    class="min-h-[40px] max-h-[168px] w-full resize-none overflow-y-hidden bg-transparent pb-0 text-base font-medium leading-6 text-[#f5f5f5] outline-none placeholder:text-[#a3a3a3] disabled:cursor-not-allowed disabled:opacity-70"
                     style="scrollbar-gutter: stable;"
                     placeholder=${hasWorkspace ? 'Build anything' : 'Open a folder to start'}
                     .value=${state.composer}
@@ -2847,7 +2942,7 @@ export const App = (): TemplateResult => {
                     }}
                   ></textarea>
 
-                  <div class="mt-1.5 flex items-center justify-between gap-3 pt-1.5">
+                  <div class="mt-1 flex items-center justify-between gap-3 pt-1">
                     <div class="flex min-w-0 flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -2916,12 +3011,15 @@ export const App = (): TemplateResult => {
                         ? html`
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
-                              width="20"
-                              height="20"
+                              width="32"
+                              height="32"
                               viewBox="0 0 24 24"
                               fill="currentColor"
+                              aria-hidden="true"
                             >
-                              <rect x="6" y="6" width="12" height="12" rx="1" />
+                              <path
+                                d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4 14H8V8h8v8z"
+                              />
                             </svg>
                           `
                         : html`
