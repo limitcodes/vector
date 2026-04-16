@@ -2064,7 +2064,7 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
         ? ''
         : html`
             <aside
-              class="flex h-full w-[252px] min-w-[252px] flex-col border-r border-[#4a4a4a] bg-[#2f2f2f] px-1 py-3"
+              class="m-1.5 mr-1 flex h-[calc(100%-12px)] w-[252px] min-w-[252px] flex-col rounded-xl border border-[#333] bg-[#1a1a1a] shadow-xl shadow-black/20 px-1 py-3"
             >
               <button
                 type="button"
@@ -2139,7 +2139,7 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
                 </div>
               </div>
 
-              <div class="mt-3 px-2 pt-2">
+              <div class="mt-auto px-2 pt-2">
                 <button
                   type="button"
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[#f5f5f5] transition-colors hover:bg-[#434343] disabled:cursor-not-allowed disabled:opacity-60"
@@ -2319,7 +2319,7 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
 
   return html`
     <aside
-      class="flex h-full shrink-0 flex-col border-l border-[#4a4a4a] bg-[#262626]"
+      class="m-1.5 ml-1 flex h-[calc(100%-12px)] shrink-0 flex-col rounded-xl border border-[#333] bg-[#1a1a1a] shadow-xl shadow-black/20"
       style=${`width: ${REVIEW_SIDEBAR_WIDTH}px; min-width: ${REVIEW_SIDEBAR_WIDTH}px;`}
     >
       <div class="flex items-start justify-between gap-3 border-b border-[#3b3b3b] px-4 pb-3 pt-4">
@@ -2570,7 +2570,7 @@ const renderMessage = (message: Message): TemplateResult => {
 
 const renderOnboarding = (): TemplateResult => {
   return html`
-    <div class="flex min-h-screen items-center justify-center bg-[#2f2f2f] px-6 text-[#f5f5f5]">
+    <div class="flex flex-col items-center gap-4">
       <div class="flex flex-col items-center gap-4">
         <button
           type="button"
@@ -2688,7 +2688,7 @@ const renderTerminalDock = (): TemplateResult => {
 export const App = (): TemplateResult => {
   if (!state.authChecked) {
     return html`
-      <div class="flex min-h-screen items-center justify-center bg-[#2f2f2f] px-6 text-[#f5f5f5]">
+      <div class="flex min-h-screen items-center justify-center bg-[#111] px-6 text-[#f5f5f5]">
         <div class="flex items-center gap-3 text-sm text-[#8f8f8f]">
           ${icon(LoaderCircle, 'sm', 'animate-spin')}
           <span>Checking login…</span>
@@ -2698,7 +2698,11 @@ export const App = (): TemplateResult => {
   }
 
   if (!state.loggedIn) {
-    return renderOnboarding()
+    return html`
+      <div class="flex min-h-screen items-center justify-center bg-[#111] px-6 text-[#f5f5f5]">
+        ${renderOnboarding()}
+      </div>
+    `
   }
 
   const activeWorkspace = getActiveWorkspace()
@@ -2708,14 +2712,14 @@ export const App = (): TemplateResult => {
   const isSending = activeChat ? isChatRunning(activeChat.id) : false
   const rightControlsStyle = state.reviewSidebarOpen
     ? `right: ${REVIEW_SIDEBAR_WIDTH + 12}px;`
-    : 'right: 12px;'
+    : 'right: 10px;'
 
   return html`
-    <div class="relative flex h-screen bg-[#2f2f2f] text-[#f5f5f5]">
+    <div class="relative flex h-screen bg-[#111] text-[#f5f5f5]">
       <button
         type="button"
-        class="absolute top-3 flex h-9 w-9 items-center justify-center rounded-lg text-[#f5f5f5] transition-all hover:bg-[#3f3f3f] z-10"
-        style=${state.sidebarCollapsed ? 'left: 12px;' : 'left: 264px;'}
+        class="absolute top-4 flex h-9 w-9 items-center justify-center rounded-lg text-[#f5f5f5] transition-all hover:bg-[#3f3f3f] z-10"
+        style=${state.sidebarCollapsed ? 'left: 10px;' : 'left: 262px;'}
         aria-label=${state.sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
         @click=${toggleSidebar}
       >
@@ -2723,7 +2727,7 @@ export const App = (): TemplateResult => {
       </button>
 
       <div
-        class="absolute top-3 z-10 flex items-center gap-2 transition-all"
+        class="absolute top-4 z-10 flex items-center gap-2 transition-all"
         style=${rightControlsStyle}
       >
         <button
@@ -2753,7 +2757,7 @@ export const App = (): TemplateResult => {
       ${renderSidebar(activeWorkspace, activeChat?.id ?? '')}
 
       <div class="flex min-w-0 flex-1">
-        <main class="flex min-w-0 flex-1 bg-[#2f2f2f] pb-0 pt-6">
+        <main class="flex min-w-0 flex-1 bg-[#111] pb-0 pt-6 ${state.sidebarCollapsed ? '' : 'rounded-tl-2xl'}">
           <div class="flex h-full w-full min-h-0 flex-col overflow-hidden">
             <section class="flex min-h-0 flex-1 flex-col px-6">
               <div class="flex min-h-0 flex-1 overflow-hidden">
@@ -2776,7 +2780,7 @@ export const App = (): TemplateResult => {
 
               <div class="flex shrink-0 justify-center pb-1 pt-8">
                 <div
-                  class="relative w-full max-w-[760px] rounded-[24px] border border-[#505050] bg-[#3a3a3a] px-[18px] pb-3 pt-2.5"
+                  class="relative w-full max-w-[760px] rounded-[24px] border border-[#333] bg-[#1a1a1a] shadow-xl shadow-black/20 px-[18px] pb-3 pt-2.5"
                 >
                   ${activeQuestionPrompt ? renderInlineQuestionPrompt(activeQuestionPrompt) : ''}
 
