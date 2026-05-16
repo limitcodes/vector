@@ -12,7 +12,7 @@ type PromptImageAttachment = {
 
 type AuthState = {
   loggedIn: boolean
-  models: Array<{ id: string; name: string }>
+  models: Array<{ id: string; name: string; thinkingLevels: ThinkingLevel[] }>
   defaultModelId: string
 }
 
@@ -52,25 +52,6 @@ type ChatNotificationClickEvent = {
   chatId: string
 }
 
-type QuestionPromptQuestion = {
-  index: number
-  question: string
-  topic: string
-  options: string[]
-}
-
-type QuestionPromptEvent = {
-  chatId: string
-  toolCallId: string
-  questions: QuestionPromptQuestion[]
-}
-
-type QuestionAnswer = {
-  topic: string
-  question: string
-  answer: string
-}
-
 type TerminalSessionSummary = {
   id: string
   title: string
@@ -96,12 +77,6 @@ type ReviewFile = {
 const api = {
   getAuthState: async (): Promise<AuthState> => {
     return ipcRenderer.invoke('auth:get-state')
-  },
-  loginCodex: async (): Promise<{ ok: true; state: AuthState } | { ok: false; error: string }> => {
-    return ipcRenderer.invoke('auth:login-codex')
-  },
-  logoutCodex: async (): Promise<{ ok: true; state: AuthState } | { ok: false; error: string }> => {
-    return ipcRenderer.invoke('auth:logout-codex')
   },
   openFolder: async (): Promise<{ path: string; name: string } | null> => {
     return ipcRenderer.invoke('dialog:open-folder')
@@ -130,13 +105,6 @@ const api = {
   }): Promise<{ ok: true } | { ok: false; error: string }> => {
     return ipcRenderer.invoke('chat:show-notification', payload)
   },
-  submitQuestionResponse: async (payload: {
-    toolCallId: string
-    cancelled?: boolean
-    answers?: QuestionAnswer[]
-  }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    return ipcRenderer.invoke('question:submit', payload)
-  },
   onAgentStreamEvent: (listener: (event: AgentStreamEvent) => void): (() => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: AgentStreamEvent): void =>
       listener(payload)
@@ -155,14 +123,6 @@ const api = {
     ipcRenderer.on('chat-notification:click', wrapped)
     return () => {
       ipcRenderer.removeListener('chat-notification:click', wrapped)
-    }
-  },
-  onQuestionPrompt: (listener: (event: QuestionPromptEvent) => void): (() => void) => {
-    const wrapped = (_event: Electron.IpcRendererEvent, payload: QuestionPromptEvent): void =>
-      listener(payload)
-    ipcRenderer.on('question:prompt', wrapped)
-    return () => {
-      ipcRenderer.removeListener('question:prompt', wrapped)
     }
   },
   listTerminals: async (): Promise<TerminalSessionSummary[]> => {

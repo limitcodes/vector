@@ -48,6 +48,7 @@ type Role = 'user' | 'assistant'
 type ModelOption = {
   id: string
   name: string
+  thinkingLevels: ThinkingLevel[]
 }
 
 type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -67,14 +68,14 @@ type ComposerImage = {
   previewUrl: string
 }
 
-const THINKING_LEVELS: Array<{ id: ThinkingLevel; label: string }> = [
-  { id: 'off', label: 'off' },
-  { id: 'minimal', label: 'minimal' },
-  { id: 'low', label: 'low' },
-  { id: 'medium', label: 'medium' },
-  { id: 'high', label: 'high' },
-  { id: 'xhigh', label: 'xhigh' }
-]
+const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+  off: 'off',
+  minimal: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh'
+}
 
 type AgentStreamEvent =
   | { type: 'start'; chatId: string; requestId: string }
@@ -110,32 +111,6 @@ type AgentStreamEvent =
 
 type ChatNotificationClickEvent = {
   chatId: string
-}
-
-type QuestionPromptQuestion = {
-  index: number
-  question: string
-  topic: string
-  options: string[]
-}
-
-type QuestionPromptEvent = {
-  chatId: string
-  toolCallId: string
-  questions: QuestionPromptQuestion[]
-}
-
-type QuestionDraft = {
-  selectedOption: string
-  customAnswer: string
-}
-
-type QuestionPromptState = {
-  chatId: string
-  toolCallId: string
-  questions: QuestionPromptQuestion[]
-  drafts: Record<string, QuestionDraft>
-  currentIndex: number
 }
 
 type TerminalSessionSummary = {
@@ -222,8 +197,6 @@ interface AppState extends PersistedState {
   chatRunStateByChatId: Record<string, ChatRunState>
   authChecked: boolean
   loggedIn: boolean
-  authBusy: boolean
-  authError: string | null
   models: ModelOption[]
   sidebarCollapsed: boolean
   expandedWorkspaces: Set<string>
@@ -239,7 +212,6 @@ interface AppState extends PersistedState {
   reviewLoading: boolean
   reviewError: string | null
   reviewLastLoadedWorkspacePath: string
-  activeQuestionPrompt: QuestionPromptState | null
 }
 
 const STORAGE_KEY = 'vector.chats.v5'
@@ -363,15 +335,13 @@ const loadState = (): AppState => {
         chats,
         activeWorkspacePath,
         activeChatId,
-        selectedModelId: parsed.selectedModelId ?? 'gpt-5.4',
+        selectedModelId: parsed.selectedModelId ?? '',
         selectedThinkingLevel: parsed.selectedThinkingLevel ?? 'medium',
         composer: '',
         composerImages: [],
         chatRunStateByChatId: {},
         authChecked: false,
         loggedIn: false,
-        authBusy: false,
-        authError: null,
         models: [],
         sidebarCollapsed: true,
         expandedWorkspaces: new Set<string>(),
@@ -386,8 +356,7 @@ const loadState = (): AppState => {
         expandedReviewFiles: new Set<string>(),
         reviewLoading: false,
         reviewError: null,
-        reviewLastLoadedWorkspacePath: '',
-        activeQuestionPrompt: null
+        reviewLastLoadedWorkspacePath: ''
       }
     }
   } catch (error) {
@@ -399,15 +368,13 @@ const loadState = (): AppState => {
     chats: [],
     activeWorkspacePath: DEFAULT_WORKSPACE_PATH,
     activeChatId: '',
-    selectedModelId: 'gpt-5.4',
+    selectedModelId: '',
     selectedThinkingLevel: 'medium',
     composer: '',
     composerImages: [],
     chatRunStateByChatId: {},
     authChecked: false,
     loggedIn: false,
-    authBusy: false,
-    authError: null,
     models: [],
     sidebarCollapsed: true,
     expandedWorkspaces: new Set<string>(),
@@ -422,8 +389,7 @@ const loadState = (): AppState => {
     expandedReviewFiles: new Set<string>(),
     reviewLoading: false,
     reviewError: null,
-    reviewLastLoadedWorkspacePath: '',
-    activeQuestionPrompt: null
+    reviewLastLoadedWorkspacePath: ''
   }
 }
 
@@ -433,7 +399,6 @@ let folderPickerInFlight = false
 let unsubscribeStream: (() => void) | undefined
 let unsubscribeTerminal: (() => void) | undefined
 let unsubscribeChatNotificationClick: (() => void) | undefined
-let unsubscribeQuestionPrompt: (() => void) | undefined
 let composerTextarea: HTMLTextAreaElement | null = null
 let composerFileInput: HTMLInputElement | null = null
 let chatScrollContainer: HTMLDivElement | null = null
@@ -511,6 +476,19 @@ const scrollActiveChatToBottom = (): void => {
 
 const getChatRunState = (current: AppState, chatId: string): ChatRunState | undefined => {
   return current.chatRunStateByChatId[chatId]
+}
+
+const getDefaultThinkingLevel = (levels: ThinkingLevel[]): ThinkingLevel => {
+  if (levels.includes('medium')) return 'medium'
+  return levels[0] ?? 'off'
+}
+
+const getSelectedModel = (current: AppState = state): ModelOption | undefined => {
+  return current.models.find((model) => model.id === current.selectedModelId)
+}
+
+const getAvailableThinkingLevels = (current: AppState = state): ThinkingLevel[] => {
+  return getSelectedModel(current)?.thinkingLevels ?? ['off']
 }
 
 const isChatRunning = (chatId: string, current: AppState = state): boolean => {
@@ -685,32 +663,6 @@ const disposeTerminalInstance = (terminalId: string): void => {
 
 export const setAppChangeListener = (listener: () => void): void => {
   notifyChange = listener
-}
-
-export const setQuestionPromptCleanup = (
-  subscribe: (listener: (event: QuestionPromptEvent) => void) => () => void
-): void => {
-  unsubscribeQuestionPrompt?.()
-  unsubscribeQuestionPrompt = subscribe((event) => {
-    const drafts = Object.fromEntries(
-      event.questions.map((question) => [
-        question.topic,
-        { selectedOption: '', customAnswer: '' } satisfies QuestionDraft
-      ])
-    )
-
-    updateState((current) => ({
-      ...current,
-      composer: '',
-      activeQuestionPrompt: {
-        chatId: event.chatId,
-        toolCallId: event.toolCallId,
-        questions: event.questions,
-        currentIndex: 0,
-        drafts
-      }
-    }))
-  })
 }
 
 export const setTerminalCleanup = (
@@ -1032,165 +984,6 @@ const onTerminalResizeStart = (event: MouseEvent): void => {
   document.body.style.cursor = 'row-resize'
 }
 
-const updateQuestionDraft = (
-  topic: string,
-  updater: (draft: QuestionDraft) => QuestionDraft
-): void => {
-  updateState((current) => {
-    if (!current.activeQuestionPrompt) return current
-    const activePrompt = current.activeQuestionPrompt
-    const currentQuestion = activePrompt.questions[activePrompt.currentIndex]
-    const prevDraft = activePrompt.drafts[topic] ?? { selectedOption: '', customAnswer: '' }
-    const nextDraft = updater(prevDraft)
-    const shouldSyncComposer = currentQuestion?.topic === topic
-
-    return {
-      ...current,
-      composer: shouldSyncComposer ? nextDraft.customAnswer : current.composer,
-      activeQuestionPrompt: {
-        ...activePrompt,
-        drafts: {
-          ...activePrompt.drafts,
-          [topic]: nextDraft
-        }
-      }
-    }
-  })
-}
-
-const setQuestionPromptPage = (nextIndex: number): void => {
-  updateState((current) => {
-    if (!current.activeQuestionPrompt) return current
-
-    const activePrompt = current.activeQuestionPrompt
-    const maxIndex = Math.max(0, activePrompt.questions.length - 1)
-    const nextPageIndex = Math.min(maxIndex, Math.max(0, nextIndex))
-    const nextQuestion = activePrompt.questions[nextPageIndex]
-    const nextDraft = nextQuestion
-      ? (activePrompt.drafts[nextQuestion.topic] ?? { selectedOption: '', customAnswer: '' })
-      : { selectedOption: '', customAnswer: '' }
-
-    return {
-      ...current,
-      composer: nextDraft.customAnswer,
-      activeQuestionPrompt: {
-        ...activePrompt,
-        currentIndex: nextPageIndex
-      }
-    }
-  })
-}
-
-const closeQuestionPrompt = async (cancelled: boolean): Promise<void> => {
-  const prompt = state.activeQuestionPrompt
-  if (!prompt) return
-
-  if (cancelled) {
-    await window.api.submitQuestionResponse({ toolCallId: prompt.toolCallId, cancelled: true })
-    updateState((current) => ({ ...current, composer: '', activeQuestionPrompt: null }))
-    return
-  }
-
-  const answers = prompt.questions.map((question) => {
-    const draft = prompt.drafts[question.topic] ?? { selectedOption: '', customAnswer: '' }
-    const answer = draft.customAnswer.trim() || draft.selectedOption.trim()
-    return {
-      topic: question.topic,
-      question: question.question,
-      answer
-    }
-  })
-
-  if (answers.some((answer) => !answer.answer)) {
-    return
-  }
-
-  await window.api.submitQuestionResponse({
-    toolCallId: prompt.toolCallId,
-    answers
-  })
-
-  updateState((current) => ({ ...current, composer: '', activeQuestionPrompt: null }))
-}
-
-const renderInlineQuestionPrompt = (prompt: QuestionPromptState): TemplateResult => {
-  const activeQuestion = prompt.questions[prompt.currentIndex]
-  const activeDraft = prompt.drafts[activeQuestion.topic] ?? {
-    selectedOption: '',
-    customAnswer: ''
-  }
-  const isFirst = prompt.currentIndex === 0
-  const isLast = prompt.currentIndex === prompt.questions.length - 1
-
-  return html`
-    <section class="mb-3 rounded-2xl bg-[var(--vector-surface-raised)] px-4 py-3">
-      <div class="mb-3 text-sm font-medium text-[var(--vector-text)]">
-        ${activeQuestion.index}. ${activeQuestion.question}
-      </div>
-
-      <div class="flex flex-col gap-1.5" role="radiogroup" aria-label=${activeQuestion.question}>
-        ${activeQuestion.options.map((option) => {
-          const selected =
-            activeDraft.selectedOption === option && activeDraft.customAnswer.trim() === ''
-          return html`
-            <button
-              type="button"
-              role="radio"
-              aria-checked=${selected ? 'true' : 'false'}
-              class=${[
-                'flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors',
-                selected
-                  ? 'bg-[color-mix(in_srgb,var(--vector-interactive)_18%,transparent)] text-[var(--vector-text)]'
-                  : 'text-[var(--vector-text-muted)] hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]'
-              ].join(' ')}
-              @click=${() => {
-                updateQuestionDraft(activeQuestion.topic, (currentDraft) => ({
-                  ...currentDraft,
-                  selectedOption: option,
-                  customAnswer: ''
-                }))
-              }}
-            >
-              <span>${option}</span>
-            </button>
-          `
-        })}
-      </div>
-
-      <div class="mt-4 flex justify-end gap-2">
-        ${Button({
-          variant: 'outline',
-          onClick: () => void closeQuestionPrompt(true),
-          children: 'Cancel'
-        })}
-        ${Button({
-          variant: 'outline',
-          onClick: () => setQuestionPromptPage(prompt.currentIndex - 1),
-          disabled: isFirst,
-          children: 'Back'
-        })}
-        ${Button({
-          variant: 'outline',
-          onClick: () => setQuestionPromptPage(prompt.currentIndex + 1),
-          disabled: isLast,
-          children: 'Next'
-        })}
-        ${Button({
-          onClick: () => void closeQuestionPrompt(false),
-          disabled: prompt.questions.some((requiredQuestion) => {
-            const requiredDraft = prompt.drafts[requiredQuestion.topic] ?? {
-              selectedOption: '',
-              customAnswer: ''
-            }
-            return !requiredDraft.selectedOption.trim() && !requiredDraft.customAnswer.trim()
-          }),
-          children: 'Continue'
-        })}
-      </div>
-    </section>
-  `
-}
-
 const getActiveWorkspacePath = (): string => {
   return state.activeWorkspacePath
 }
@@ -1302,80 +1095,27 @@ const scheduleReviewRefresh = ({
 
 const syncAuthState = async (): Promise<void> => {
   const authState = await window.api.getAuthState()
-  updateState((current) => ({
-    ...current,
-    authChecked: true,
-    loggedIn: authState.loggedIn,
-    models: authState.models,
-    selectedModelId: authState.models.some((model) => model.id === current.selectedModelId)
+  updateState((current) => {
+    const selectedModelId = authState.models.some((model) => model.id === current.selectedModelId)
       ? current.selectedModelId
-      : authState.defaultModelId,
-    authError: null
-  }))
-}
+      : authState.defaultModelId
+    const selectedModel = authState.models.find((model) => model.id === selectedModelId)
+    const thinkingLevels = selectedModel?.thinkingLevels ?? ['off']
 
-const loginCodex = async (): Promise<void> => {
-  updateState((current) => ({
-    ...current,
-    authBusy: true,
-    authError: null
-  }))
-
-  const result = await window.api.loginCodex()
-  if (!result.ok) {
-    updateState((current) => ({
+    return {
       ...current,
-      authBusy: false,
       authChecked: true,
-      loggedIn: false,
-      authError: result.error
-    }))
-    return
-  }
-
-  updateState((current) => ({
-    ...current,
-    authBusy: false,
-    authChecked: true,
-    loggedIn: result.state.loggedIn,
-    models: result.state.models,
-    selectedModelId: result.state.models.some((model) => model.id === current.selectedModelId)
-      ? current.selectedModelId
-      : result.state.defaultModelId,
-    authError: null
-  }))
+      loggedIn: authState.loggedIn,
+      models: authState.models,
+      selectedModelId,
+      selectedThinkingLevel: thinkingLevels.includes(current.selectedThinkingLevel)
+        ? current.selectedThinkingLevel
+        : getDefaultThinkingLevel(thinkingLevels)
+    }
+  })
 }
 
 const setComposer = (value: string): void => {
-  const activePrompt = state.activeQuestionPrompt
-  if (activePrompt) {
-    const activeQuestion = activePrompt.questions[activePrompt.currentIndex]
-    if (activeQuestion) {
-      const currentDraft = activePrompt.drafts[activeQuestion.topic] ?? {
-        selectedOption: '',
-        customAnswer: ''
-      }
-      state = {
-        ...state,
-        composer: value,
-        activeQuestionPrompt: {
-          ...activePrompt,
-          drafts: {
-            ...activePrompt.drafts,
-            [activeQuestion.topic]: {
-              ...currentDraft,
-              selectedOption: value.trim() ? '' : currentDraft.selectedOption,
-              customAnswer: value
-            }
-          }
-        }
-      }
-      triggerChange()
-      queueMicrotask(syncComposerHeight)
-      return
-    }
-  }
-
   state = {
     ...state,
     composer: value
@@ -1438,7 +1178,14 @@ const resetComposerImages = (current: AppState): AppState => {
 const setSelectedModelId = (value: string): void => {
   updateState((current) => ({
     ...current,
-    selectedModelId: value
+    selectedModelId: value,
+    selectedThinkingLevel: (
+      current.models.find((model) => model.id === value)?.thinkingLevels ?? ['off']
+    ).includes(current.selectedThinkingLevel)
+      ? current.selectedThinkingLevel
+      : getDefaultThinkingLevel(
+          current.models.find((model) => model.id === value)?.thinkingLevels ?? ['off']
+        )
   }))
 }
 
@@ -1707,43 +1454,6 @@ const confirmDeleteChat = (): void => {
   })
 }
 
-const logoutCodex = async (): Promise<void> => {
-  if (state.authBusy) return
-
-  updateState((current) => ({
-    ...current,
-    authBusy: true,
-    authError: null
-  }))
-
-  const result = await window.api.logoutCodex()
-  if (!result.ok) {
-    updateState((current) => ({
-      ...current,
-      authBusy: false,
-      authChecked: true,
-      authError: result.error
-    }))
-    return
-  }
-
-  updateState((current) => {
-    const next = resetComposerImages(current)
-    return {
-      ...next,
-      authBusy: false,
-      authChecked: true,
-      loggedIn: result.state.loggedIn,
-      models: result.state.models,
-      selectedModelId: result.state.models.some((model) => model.id === next.selectedModelId)
-        ? next.selectedModelId
-        : result.state.defaultModelId,
-      authError: null,
-      settingsDialogOpen: false
-    }
-  })
-}
-
 const openFolder = async (): Promise<void> => {
   if (folderPickerInFlight || !state.loggedIn) return
   folderPickerInFlight = true
@@ -1795,9 +1505,9 @@ const sendMessage = async (): Promise<void> => {
   const composerImages = state.composerImages
 
   if (
-    state.activeQuestionPrompt ||
     (!content && composerImages.length === 0) ||
     !activeChat ||
+    state.models.length === 0 ||
     workspace.path === DEFAULT_WORKSPACE_PATH ||
     isChatRunning(activeChat.id) ||
     !state.loggedIn
@@ -1993,18 +1703,6 @@ const onGlobalKeyDown = (event: KeyboardEvent): void => {
   }
 }
 
-const renderOpenAiMark = (className = 'h-4 w-4'): TemplateResult => html`
-  <svg class=${className} viewBox="0 0 256 260" fill="none" aria-hidden="true">
-    <path
-      d="M239.184 106.203a64.72 64.72 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.72 64.72 0 0 0-43.23 31.36c-14.31 24.602-11.061 55.634 8.033 76.74a64.67 64.67 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.77 64.77 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483m-97.56 136.338a48.4 48.4 0 0 1-31.105-11.255l1.535-.87l51.67-29.825a8.6 8.6 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.601M37.158 197.93a48.35 48.35 0 0 1-5.781-32.589l1.534.921l51.722 29.826a8.34 8.34 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803M23.549 85.38a48.5 48.5 0 0 1 25.58-21.333v61.39a8.29 8.29 0 0 0 4.195 7.316l62.874 36.272l-21.845 12.636a.82.82 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405m179.466 41.695l-63.08-36.63L161.73 77.86a.82.82 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.54 8.54 0 0 0-4.4-7.213m21.742-32.69l-1.535-.922l-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.72.72 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391zM88.061 139.097l-21.845-12.585a.87.87 0 0 1-.41-.614V65.685a48.652 48.652 0 0 1 79.757-37.346l-1.535.87l-51.67 29.825a8.6 8.6 0 0 0-4.246 7.367zm11.868-25.58L128.067 97.3l28.188 16.218v32.434l-28.086 16.218l-28.188-16.218z"
-      stroke="currentColor"
-      stroke-width="10"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-  </svg>
-`
-
 const renderTablerPlus = (className = 'h-4 w-4'): TemplateResult => html`
   <svg
     class=${className}
@@ -2183,7 +1881,6 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
                 <button
                   type="button"
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[var(--vector-text)] transition-colors hover:bg-[var(--vector-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-                  ?disabled=${state.authBusy}
                   @click=${openSettingsDialog}
                 >
                   ${icon(Settings, 'sm')}
@@ -2739,32 +2436,6 @@ const renderMessage = (message: Message): TemplateResult => {
   `
 }
 
-const renderOnboarding = (): TemplateResult => {
-  return html`
-    <div class="flex flex-col items-center gap-4">
-      <div class="flex flex-col items-center gap-4">
-        <button
-          type="button"
-          class="inline-flex cursor-pointer items-center gap-3 rounded-full border border-[var(--vector-border-strong)] bg-[var(--vector-surface-active)] px-6 py-4 text-[16px] font-medium text-[var(--vector-text)] transition-colors hover:bg-[var(--vector-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-          ?disabled=${state.authBusy}
-          @click=${() => void loginCodex()}
-        >
-          ${state.authBusy
-            ? html`${icon(LoaderCircle, 'sm', 'animate-spin')}`
-            : html`${renderOpenAiMark('h-[18px] w-[18px]')}`}
-          <span>${state.authBusy ? 'Logging in' : 'Log in with OpenAI'}</span>
-        </button>
-
-        ${state.authError
-          ? html`<p class="max-w-md text-center text-sm leading-6 text-[var(--vector-error)]">
-              ${state.authError}
-            </p>`
-          : ''}
-      </div>
-    </div>
-  `
-}
-
 const renderTerminalDock = (): TemplateResult => {
   const activeTerminalId = state.activeTerminalId
 
@@ -2869,25 +2540,14 @@ export const App = (): TemplateResult => {
       >
         <div class="flex items-center gap-3 text-sm text-[var(--vector-text-muted)]">
           ${icon(LoaderCircle, 'sm', 'animate-spin')}
-          <span>Checking login…</span>
+          <span>Loading Pi models…</span>
         </div>
-      </div>
-    `
-  }
-
-  if (!state.loggedIn) {
-    return html`
-      <div
-        class="flex min-h-screen items-center justify-center bg-[var(--vector-bg)] px-6 text-[var(--vector-text)]"
-      >
-        ${renderOnboarding()}
       </div>
     `
   }
 
   const activeWorkspace = getActiveWorkspace()
   const activeChat = getActiveChat()
-  const activeQuestionPrompt = state.activeQuestionPrompt
   const hasWorkspace = activeWorkspace.path !== DEFAULT_WORKSPACE_PATH
   const isSending = activeChat ? isChatRunning(activeChat.id) : false
   const rightControlsStyle = state.reviewSidebarOpen
@@ -2976,8 +2636,6 @@ export const App = (): TemplateResult => {
                 <div
                   class="relative w-full max-w-[760px] rounded-[24px] border border-[var(--vector-border)] bg-[var(--vector-surface)] shadow-xl shadow-black/20 px-[18px] pb-3 pt-2.5"
                 >
-                  ${activeQuestionPrompt ? renderInlineQuestionPrompt(activeQuestionPrompt) : ''}
-
                   <input
                     type="file"
                     accept="image/*"
@@ -3077,9 +2735,9 @@ export const App = (): TemplateResult => {
                         variant: 'ghost',
                         value: state.selectedThinkingLevel,
                         placeholder: 'Thinking',
-                        options: THINKING_LEVELS.map((level) => ({
-                          value: level.id,
-                          label: level.label
+                        options: getAvailableThinkingLevels().map((level) => ({
+                          value: level,
+                          label: THINKING_LEVEL_LABELS[level]
                         })),
                         onChange: (value) => {
                           setSelectedThinkingLevel(value as ThinkingLevel)
@@ -3099,10 +2757,10 @@ export const App = (): TemplateResult => {
                           : 'Send message'
                       }
                       ?disabled=${
-                        state.activeQuestionPrompt ||
-                        ((!(state.composer.trim() || state.composerImages.length > 0) ||
-                          !activeChat) &&
-                          !isSending)
+                        (!(state.composer.trim() || state.composerImages.length > 0) ||
+                          !activeChat ||
+                          state.models.length === 0) &&
+                        !isSending
                       }
                       @click=${() => void sendMessage()}
                     >
@@ -3158,7 +2816,7 @@ export const App = (): TemplateResult => {
             children: html`
               ${DialogHeader({
                 title: 'Settings',
-                description: 'Manage your account session.'
+                description: 'Vector uses your Pi CLI auth and model configuration.'
               })}
               ${DialogFooter({
                 children: html`
@@ -3166,13 +2824,7 @@ export const App = (): TemplateResult => {
                     ${Button({
                       variant: 'outline',
                       onClick: () => closeSettingsDialog(),
-                      children: 'Cancel'
-                    })}
-                    ${Button({
-                      variant: 'destructive',
-                      onClick: () => void logoutCodex(),
-                      disabled: state.authBusy,
-                      children: state.authBusy ? 'Logging out' : 'Logout'
+                      children: 'Close'
                     })}
                   </div>
                 `

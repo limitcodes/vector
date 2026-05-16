@@ -9,11 +9,11 @@ import {
 } from 'electron'
 import { execFile } from 'child_process'
 import { readFile } from 'fs/promises'
-import { homedir, release } from 'os'
+import { homedir } from 'os'
 import { basename, join, resolve } from 'path'
 import { promisify } from 'util'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { Type, type ImageContent } from '@mariozechner/pi-ai'
+import { supportsXhigh, type Api, type ImageContent, type Model } from '@mariozechner/pi-ai'
 import { spawn, type IPty } from 'node-pty'
 import * as Diff from 'diff'
 import {
@@ -21,18 +21,12 @@ import {
   createAgentSession,
   createBashTool,
   createEditTool,
-  createFindTool,
-  createGrepTool,
-  createLsTool,
   createReadTool,
   createWriteTool,
-  DefaultResourceLoader,
   ModelRegistry,
-  type ToolDefinition,
   SessionManager
 } from '../../node_modules/@mariozechner/pi-coding-agent/dist/index.js'
 import icon from '../../resources/icon.png?asset'
-import { VECTOR_SYSTEM_PROMPT } from './vector-system-prompt'
 
 type PiSession = Awaited<ReturnType<typeof createAgentSession>>['session']
 
@@ -53,6 +47,7 @@ type SessionEvent = {
 type ModelOption = {
   id: string
   name: string
+  thinkingLevels: ThinkingLevel[]
 }
 
 type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -113,31 +108,6 @@ type StreamEvent =
   | { type: 'end'; chatId: string; requestId: string }
   | { type: 'error'; chatId: string; requestId: string; error: string }
 
-type QuestionPromptQuestion = {
-  index: number
-  question: string
-  topic: string
-  options: string[]
-}
-
-type QuestionPromptEvent = {
-  chatId: string
-  toolCallId: string
-  questions: QuestionPromptQuestion[]
-}
-
-type QuestionAnswer = {
-  topic: string
-  question: string
-  answer: string
-}
-
-type QuestionSubmitPayload = {
-  toolCallId: string
-  cancelled?: boolean
-  answers?: QuestionAnswer[]
-}
-
 type ChatNotificationClickEvent = {
   chatId: string
 }
@@ -153,19 +123,12 @@ type ReviewFile = {
 let mainWindow: BrowserWindow | null = null
 
 app.setName('Vector')
-const authStorage = AuthStorage.create(join(app.getPath('userData'), 'auth.json'))
+const authStorage = AuthStorage.create()
 const modelRegistry = new ModelRegistry(authStorage)
 const sessionCache = new Map<string, PiSession>()
-const hiddenReminderInjectedChats = new Set<string>()
 const terminalSessions = new Map<string, TerminalRecord>()
 let terminalSequence = 0
 const execFileAsync = promisify(execFile)
-const pendingQuestionRequests = new Map<
-  string,
-  {
-    resolve: (payload: QuestionSubmitPayload) => void
-  }
->()
 
 const emitStreamEvent = (payload: StreamEvent): void => {
   mainWindow?.webContents.send('agent:stream-event', payload)
@@ -178,136 +141,6 @@ const emitTerminalEvent = (payload: TerminalEvent): void => {
 const emitChatNotificationClickEvent = (payload: ChatNotificationClickEvent): void => {
   mainWindow?.webContents.send('chat-notification:click', payload)
 }
-
-const emitQuestionPromptEvent = (payload: QuestionPromptEvent): void => {
-  mainWindow?.webContents.send('question:prompt', payload)
-}
-
-const parseQuestionnaire = (questionnaire: string): QuestionPromptQuestion[] => {
-  const lines = questionnaire
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  const questions: QuestionPromptQuestion[] = []
-  let current: QuestionPromptQuestion | null = null
-  let pendingTopic: string | null = null
-
-  for (const line of lines) {
-    const questionMatch = line.match(/^(?:\d+\.\s*)?\[question\]\s*(.+)$/i)
-    if (questionMatch) {
-      current = {
-        index: questions.length + 1,
-        question: questionMatch[1].trim(),
-        topic: pendingTopic ?? `Question-${questions.length + 1}`,
-        options: []
-      }
-      questions.push(current)
-      pendingTopic = null
-      continue
-    }
-
-    const topicMatch = line.match(/^\[topic\]\s*(.+)$/i)
-    if (topicMatch) {
-      if (current && current.options.length === 0) {
-        current.topic = topicMatch[1].trim()
-      } else {
-        pendingTopic = topicMatch[1].trim()
-      }
-      continue
-    }
-
-    if (!current) {
-      continue
-    }
-
-    const optionMatch = line.match(/^\[option\]\s*(.+)$/i)
-    if (optionMatch) {
-      current.options.push(optionMatch[1].trim())
-    }
-  }
-
-  if (questions.length < 1 || questions.length > 4) {
-    throw new Error('question tool requires 1-4 questions')
-  }
-
-  for (const question of questions) {
-    if (!question.question) {
-      throw new Error('question tool received an empty question')
-    }
-    if (!question.topic) {
-      throw new Error(`question tool is missing a topic for question ${question.index}`)
-    }
-    if (question.options.length < 2 || question.options.length > 4) {
-      throw new Error(
-        `question tool requires 2-4 options for "${question.topic}", received ${question.options.length}`
-      )
-    }
-  }
-
-  return questions
-}
-
-const createQuestionTool = (chatId: string): ToolDefinition => ({
-  name: 'question',
-  label: 'Question',
-  description:
-    'Ask the user 1-4 short multiple-choice clarification questions and receive structured answers.',
-  promptSnippet:
-    'Ask the user a short multiple-choice questionnaire when clarification is required.',
-  parameters: Type.Object({
-    questionnaire: Type.String({
-      description:
-        'A plain-text questionnaire using [question], [topic], and [option] lines with 1-4 questions and 2-4 options per question.'
-    })
-  }),
-  async execute(toolCallId, params, signal) {
-    const questionnaire =
-      params && typeof params === 'object' && 'questionnaire' in params
-        ? String((params as { questionnaire: string }).questionnaire ?? '')
-        : ''
-    const questions = parseQuestionnaire(questionnaire)
-
-    if (!mainWindow) {
-      throw new Error('Main window is not available')
-    }
-
-    const response = await new Promise<QuestionSubmitPayload>((resolveQuestion, reject) => {
-      pendingQuestionRequests.set(toolCallId, { resolve: resolveQuestion })
-
-      const handleAbort = (): void => {
-        pendingQuestionRequests.delete(toolCallId)
-        reject(new Error('question tool cancelled'))
-      }
-
-      if (signal?.aborted) {
-        handleAbort()
-        return
-      }
-
-      signal?.addEventListener('abort', handleAbort, { once: true })
-      emitQuestionPromptEvent({ chatId, toolCallId, questions })
-    })
-
-    pendingQuestionRequests.delete(toolCallId)
-
-    if (response.cancelled) {
-      throw new Error('question tool cancelled by user')
-    }
-
-    const answers = response.answers ?? []
-    if (answers.length !== questions.length) {
-      throw new Error('question tool did not receive a complete response')
-    }
-
-    const text = answers.map((answer) => `- ${answer.topic}: ${answer.answer}`).join('\n')
-
-    return {
-      content: [{ type: 'text', text: `User answers:\n${text}` }],
-      details: { answers }
-    }
-  }
-})
 
 const focusMainWindow = (): void => {
   if (!mainWindow) return
@@ -603,43 +436,49 @@ const compareModels = (left: ModelOption, right: ModelOption): number => {
   })
 }
 
-const getCodexModels = (): ModelOption[] => {
+const getModelOptionId = (provider: string, modelId: string): string => {
+  return JSON.stringify({ provider, modelId })
+}
+
+const parseModelOptionId = (value: string): { provider: string; modelId: string } | undefined => {
+  try {
+    const parsed = JSON.parse(value) as { provider?: unknown; modelId?: unknown }
+    if (typeof parsed.provider === 'string' && typeof parsed.modelId === 'string') {
+      return { provider: parsed.provider, modelId: parsed.modelId }
+    }
+  } catch {
+    return undefined
+  }
+
+  return undefined
+}
+
+const getThinkingLevelsForModel = (model: Model<Api>): ThinkingLevel[] => {
+  if (!model.reasoning) return ['off']
+  return supportsXhigh(model)
+    ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+    : ['off', 'minimal', 'low', 'medium', 'high']
+}
+
+const getPiModels = (): ModelOption[] => {
+  modelRegistry.refresh()
   return modelRegistry
-    .getAll()
-    .filter((model) => model.provider === 'openai-codex')
-    .map((model) => ({ id: model.id, name: model.name }))
+    .getAvailable()
+    .map((model) => ({
+      id: getModelOptionId(model.provider, model.id),
+      name: `${model.name} (${model.provider})`,
+      thinkingLevels: getThinkingLevelsForModel(model)
+    }))
     .sort(compareModels)
 }
 
 const getAuthState = (): { loggedIn: boolean; models: ModelOption[]; defaultModelId: string } => {
-  const models = getCodexModels()
+  const models = getPiModels()
   return {
-    loggedIn: authStorage.has('openai-codex'),
+    loggedIn: true,
     models,
-    defaultModelId: models.find((model) => model.id === 'gpt-5.4')?.id ?? models[0]?.id ?? 'gpt-5.4'
+    defaultModelId: models[0]?.id ?? ''
   }
-}
-
-const promptInRenderer = async (message: string): Promise<string> => {
-  if (!mainWindow) {
-    throw new Error('Login prompt unavailable')
-  }
-
-  const result = await mainWindow.webContents.executeJavaScript(
-    `window.prompt(${JSON.stringify(message)}) ?? ''`,
-    true
-  )
-
-  return typeof result === 'string' ? result : ''
-}
-
-const loginCodex = async (): Promise<void> => {
-  await authStorage.login('openai-codex', {
-    onAuth: ({ url }) => {
-      void shell.openExternal(url)
-    },
-    onPrompt: async ({ message }) => promptInRenderer(message)
-  })
 }
 
 const safeStringify = (value: unknown): string => {
@@ -732,103 +571,20 @@ const extractAssistantText = (messages: unknown[]): string => {
   return ''
 }
 
-const getReminderCommandOutput = async (cwd: string, command: string): Promise<string> => {
-  try {
-    const { stdout, stderr } = await execFileAsync('/bin/sh', ['-lc', command], {
-      cwd,
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024
-    })
-    const output = `${stdout ?? ''}${stderr ?? ''}`.trim()
-    if (output) return output
-
-    if (command.startsWith('which ')) {
-      const tool = command.slice('which '.length).trim()
-      return `${tool} not found`
-    }
-
-    return '(no output)'
-  } catch (error) {
-    const execError = error as {
-      stdout?: string
-      stderr?: string
-      message?: string
-    }
-    const output = `${execError.stdout ?? ''}${execError.stderr ?? ''}`.trim()
-    if (output) return output
-
-    if (command.startsWith('which ')) {
-      const tool = command.slice('which '.length).trim()
-      return `${tool} not found`
-    }
-
-    return execError.message ?? String(error)
-  }
-}
-
-const buildHiddenSystemReminder = async (cwd: string): Promise<string> => {
-  const commands = [
-    'pwd',
-    'ls',
-    'git rev-parse --abbrev-ref HEAD',
-    'git status --porcelain',
-    'git log --oneline -5',
-    'git symbolic-ref refs/remotes/origin/HEAD',
-    'git --version',
-    'rg --version',
-    'gh --version',
-    'which wget',
-    'curl --version',
-    'ffmpeg -version',
-    'python3 --version',
-    'jupyter --config-dir',
-    'ls /.dockerenv'
-  ]
-
-  const sections: string[] = []
-  for (const command of commands) {
-    const output = await getReminderCommandOutput(cwd, command)
-    sections.push(`% ${command}\n${output}`)
-  }
-
-  return `<system-reminder>\n\nUser system info (${process.platform} ${release()})\nToday's date: ${new Date().toISOString().slice(0, 10)}\n\n# The commands below were executed at the start of all sessions to gather context about the environment.\n# You do not need to repeat them, unless you think the environment has changed.\n# Remember: They are not necessarily related to the current conversation, but may be useful for context.\n\n${sections.join('\n\n')}\n\nIMPORTANT:\n- Double check the tools installed in the environment before using them.\n- Never call a file editing tool for the same file in parallel.\n- Always prefer using the absolute paths when using tools, to avoid any ambiguity.\n\n</system-reminder>`
-}
-
-const ensureHiddenSystemReminder = async (
-  session: PiSession,
-  chatId: string,
-  cwd: string
-): Promise<void> => {
-  if (hiddenReminderInjectedChats.has(chatId)) {
-    return
-  }
-
-  const reminder = await buildHiddenSystemReminder(cwd)
-  console.log('[vector:first-request:hidden-user-message]', { chatId, cwd, reminder })
-  await session.sendCustomMessage(
-    {
-      customType: 'system-reminder',
-      content: [{ type: 'text', text: reminder }],
-      display: false
-    },
-    { triggerTurn: false }
-  )
-  hiddenReminderInjectedChats.add(chatId)
-}
-
 const getOrCreateSession = async (
   chatId: string,
   cwd: string,
   modelId: string,
   thinkingLevel: ThinkingLevel
 ): Promise<PiSession> => {
-  if (!authStorage.has('openai-codex')) {
-    throw new Error('Log in with ChatGPT Plus/Pro before starting a chat.')
-  }
+  modelRegistry.refresh()
+  const parsedModel = parseModelOptionId(modelId)
+  const model = parsedModel
+    ? modelRegistry.find(parsedModel.provider, parsedModel.modelId)
+    : modelRegistry.getAvailable()[0]
 
-  const model = modelRegistry.find('openai-codex', modelId)
   if (!model) {
-    throw new Error(`Unknown model: ${modelId}`)
+    throw new Error('No Pi model is available. Configure pi CLI auth, then restart Vector.')
   }
 
   const cached = sessionCache.get(chatId)
@@ -840,28 +596,12 @@ const getOrCreateSession = async (
     return cached
   }
 
-  const resourceLoader = new DefaultResourceLoader({
-    cwd,
-    systemPromptOverride: () => VECTOR_SYSTEM_PROMPT
-  })
-  await resourceLoader.reload()
-
   const { session } = await createAgentSession({
     cwd,
     model,
     authStorage,
     modelRegistry,
-    resourceLoader,
-    tools: [
-      createReadTool(cwd),
-      createBashTool(cwd),
-      createEditTool(cwd),
-      createWriteTool(cwd),
-      createGrepTool(cwd),
-      createFindTool(cwd),
-      createLsTool(cwd)
-    ],
-    customTools: [createQuestionTool(chatId)],
+    tools: [createReadTool(cwd), createBashTool(cwd), createEditTool(cwd), createWriteTool(cwd)],
     sessionManager: SessionManager.inMemory()
   })
 
@@ -944,7 +684,6 @@ const streamPrompt = async (
   })
 
   try {
-    await ensureHiddenSystemReminder(session, chatId, cwd)
     await session.prompt(prompt, images.length > 0 ? { images } : undefined)
     if (!text.trim()) {
       const fallback = extractAssistantText(session.messages as unknown[])
@@ -1005,30 +744,6 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('auth:get-state', async () => getAuthState())
-
-  ipcMain.handle('auth:login-codex', async () => {
-    try {
-      await loginCodex()
-      modelRegistry.refresh()
-      return { ok: true as const, state: getAuthState() }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ok: false as const, error: message }
-    }
-  })
-
-  ipcMain.handle('auth:logout-codex', async () => {
-    try {
-      authStorage.logout('openai-codex')
-      modelRegistry.refresh()
-      sessionCache.clear()
-      hiddenReminderInjectedChats.clear()
-      return { ok: true as const, state: getAuthState() }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ok: false as const, error: message }
-    }
-  })
 
   ipcMain.handle('dialog:open-folder', async () => {
     const options: OpenDialogOptions = {
@@ -1091,16 +806,6 @@ app.whenReady().then(() => {
       }
     }
   )
-
-  ipcMain.handle('question:submit', async (_event, payload: QuestionSubmitPayload) => {
-    const request = pendingQuestionRequests.get(payload.toolCallId)
-    if (!request) {
-      return { ok: false as const, error: 'Question request not found' }
-    }
-
-    request.resolve(payload)
-    return { ok: true as const }
-  })
 
   ipcMain.handle(
     'chat:show-notification',

@@ -11,7 +11,7 @@ type PromptImageAttachment = {
 
 interface AuthState {
   loggedIn: boolean
-  models: Array<{ id: string; name: string }>
+  models: Array<{ id: string; name: string; thinkingLevels: ThinkingLevel[] }>
   defaultModelId: string
 }
 
@@ -51,25 +51,6 @@ type ChatNotificationClickEvent = {
   chatId: string
 }
 
-type QuestionPromptQuestion = {
-  index: number
-  question: string
-  topic: string
-  options: string[]
-}
-
-type QuestionPromptEvent = {
-  chatId: string
-  toolCallId: string
-  questions: QuestionPromptQuestion[]
-}
-
-type QuestionAnswer = {
-  topic: string
-  question: string
-  answer: string
-}
-
 interface TerminalSessionSummary {
   id: string
   title: string
@@ -94,8 +75,6 @@ type ReviewFile = {
 
 interface PiDesktopApi {
   getAuthState: () => Promise<AuthState>
-  loginCodex: () => Promise<{ ok: true; state: AuthState } | { ok: false; error: string }>
-  logoutCodex: () => Promise<{ ok: true; state: AuthState } | { ok: false; error: string }>
   openFolder: () => Promise<{ path: string; name: string } | null>
   getWorkspaceDiff: (payload: {
     cwd: string
@@ -113,14 +92,8 @@ interface PiDesktopApi {
     title: string
     body: string
   }) => Promise<{ ok: true } | { ok: false; error: string }>
-  submitQuestionResponse: (payload: {
-    toolCallId: string
-    cancelled?: boolean
-    answers?: QuestionAnswer[]
-  }) => Promise<{ ok: true } | { ok: false; error: string }>
   onAgentStreamEvent: (listener: (event: AgentStreamEvent) => void) => () => void
   onChatNotificationClick: (listener: (event: ChatNotificationClickEvent) => void) => () => void
-  onQuestionPrompt: (listener: (event: QuestionPromptEvent) => void) => () => void
   listTerminals: () => Promise<TerminalSessionSummary[]>
   createTerminal: (payload: {
     cwd?: string
