@@ -272,8 +272,8 @@ const createQuestionTool = (chatId: string): ToolDefinition => ({
       throw new Error('Main window is not available')
     }
 
-    const response = await new Promise<QuestionSubmitPayload>((resolve, reject) => {
-      pendingQuestionRequests.set(toolCallId, { resolve })
+    const response = await new Promise<QuestionSubmitPayload>((resolveQuestion, reject) => {
+      pendingQuestionRequests.set(toolCallId, { resolve: resolveQuestion })
 
       const handleAbort = (): void => {
         pendingQuestionRequests.delete(toolCallId)
@@ -382,10 +382,10 @@ const createTerminalSession = ({
   cwd?: string
   title?: string
 }): TerminalSessionSummary => {
-  const shell = getDefaultShell()
+  const shellPath = getDefaultShell()
   const resolvedCwd = cwd || homedir()
   const id = `terminal-${Date.now()}-${terminalSequence++}`
-  const terminal = spawn(shell, getShellArgs(shell), {
+  const terminal = spawn(shellPath, getShellArgs(shellPath), {
     name: 'xterm-256color',
     cols: 120,
     rows: 32,
@@ -401,7 +401,7 @@ const createTerminalSession = ({
     id,
     title: title?.trim() || `Terminal ${terminalSessions.size + 1}`,
     cwd: resolvedCwd,
-    shell,
+    shell: shellPath,
     pty: terminal,
     status: 'running',
     exitCode: null

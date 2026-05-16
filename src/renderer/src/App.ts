@@ -631,27 +631,27 @@ const ensureTerminalInstance = (terminalId: string, mount: HTMLDivElement): void
       macOptionIsMeta: true,
       scrollback: 3000,
       theme: {
-        background: '#000000',
-        foreground: '#f5f5f5',
-        cursor: '#f5f5f5',
-        cursorAccent: '#000000',
-        selectionBackground: '#505050',
-        black: '#1f1f1f',
-        red: '#ff7b72',
-        green: '#7ee787',
-        yellow: '#f2cc60',
-        blue: '#79c0ff',
-        magenta: '#d2a8ff',
-        cyan: '#a5f3fc',
-        white: '#c9d1d9',
-        brightBlack: '#6e7681',
-        brightRed: '#ffa198',
-        brightGreen: '#56d364',
-        brightYellow: '#e3b341',
-        brightBlue: '#79c0ff',
-        brightMagenta: '#bc8cff',
-        brightCyan: '#39c5cf',
-        brightWhite: '#f0f6fc'
+        background: '#181818',
+        foreground: '#e4e4e4',
+        cursor: '#82d2ce',
+        cursorAccent: '#181818',
+        selectionBackground: '#303030',
+        black: '#181818',
+        red: '#e34671',
+        green: '#3fa266',
+        yellow: '#f1b467',
+        blue: '#81a1c1',
+        magenta: '#e394dc',
+        cyan: '#82d2ce',
+        white: '#e4e4e4',
+        brightBlack: '#e4e4e45e',
+        brightRed: '#fc6b83',
+        brightGreen: '#70b489',
+        brightYellow: '#f8c762',
+        brightBlue: '#88c0d0',
+        brightMagenta: '#aaa0fa',
+        brightCyan: '#82d2ce',
+        brightWhite: '#ffffff'
       }
     })
     const fitAddon = new FitAddon()
@@ -862,12 +862,12 @@ export const setStreamCleanup = (
           streaming: false
         }))
         const hasUnreadCompletion = current.activeChatId !== event.chatId
-        const chat = getChatById(event.chatId, nextState)
+        const completedChat = getChatById(event.chatId, nextState)
 
-        if (hasUnreadCompletion && chat) {
+        if (hasUnreadCompletion && completedChat) {
           notification = {
             chatId: event.chatId,
-            title: chat.title,
+            title: completedChat.title,
             body: 'Response finished'
           }
         }
@@ -875,13 +875,13 @@ export const setStreamCleanup = (
         return {
           ...nextState,
           chats: sortChats(
-            nextState.chats.map((chat) =>
-              chat.id === event.chatId
+            nextState.chats.map((updatedChat) =>
+              updatedChat.id === event.chatId
                 ? {
-                    ...chat,
+                    ...updatedChat,
                     updatedAt: now()
                   }
-                : chat
+                : updatedChat
             )
           ),
           chatRunStateByChatId: {
@@ -902,12 +902,12 @@ export const setStreamCleanup = (
           streaming: false
         }))
         const hasUnreadCompletion = current.activeChatId !== event.chatId
-        const chat = getChatById(event.chatId, nextState)
+        const errorChat = getChatById(event.chatId, nextState)
 
-        if (hasUnreadCompletion && chat) {
+        if (hasUnreadCompletion && errorChat) {
           notification = {
             chatId: event.chatId,
-            title: chat.title,
+            title: errorChat.title,
             body: 'Response ended with an error'
           }
         }
@@ -915,13 +915,13 @@ export const setStreamCleanup = (
         return {
           ...nextState,
           chats: sortChats(
-            nextState.chats.map((chat) =>
-              chat.id === event.chatId
+            nextState.chats.map((updatedChat) =>
+              updatedChat.id === event.chatId
                 ? {
-                    ...chat,
+                    ...updatedChat,
                     updatedAt: now()
                   }
-                : chat
+                : updatedChat
             )
           ),
           chatRunStateByChatId: {
@@ -1114,8 +1114,8 @@ const closeQuestionPrompt = async (cancelled: boolean): Promise<void> => {
 }
 
 const renderInlineQuestionPrompt = (prompt: QuestionPromptState): TemplateResult => {
-  const question = prompt.questions[prompt.currentIndex]
-  const draft = prompt.drafts[question.topic] ?? {
+  const activeQuestion = prompt.questions[prompt.currentIndex]
+  const activeDraft = prompt.drafts[activeQuestion.topic] ?? {
     selectedOption: '',
     customAnswer: ''
   }
@@ -1123,12 +1123,15 @@ const renderInlineQuestionPrompt = (prompt: QuestionPromptState): TemplateResult
   const isLast = prompt.currentIndex === prompt.questions.length - 1
 
   return html`
-    <section class="mb-3 rounded-2xl bg-[#242424] px-4 py-3">
-      <div class="mb-3 text-sm font-medium text-white">${question.index}. ${question.question}</div>
+    <section class="mb-3 rounded-2xl bg-[var(--vector-surface-raised)] px-4 py-3">
+      <div class="mb-3 text-sm font-medium text-[var(--vector-text)]">
+        ${activeQuestion.index}. ${activeQuestion.question}
+      </div>
 
-      <div class="flex flex-col gap-1.5" role="radiogroup" aria-label=${question.question}>
-        ${question.options.map((option) => {
-          const selected = draft.selectedOption === option && draft.customAnswer.trim() === ''
+      <div class="flex flex-col gap-1.5" role="radiogroup" aria-label=${activeQuestion.question}>
+        ${activeQuestion.options.map((option) => {
+          const selected =
+            activeDraft.selectedOption === option && activeDraft.customAnswer.trim() === ''
           return html`
             <button
               type="button"
@@ -1137,11 +1140,11 @@ const renderInlineQuestionPrompt = (prompt: QuestionPromptState): TemplateResult
               class=${[
                 'flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors',
                 selected
-                  ? 'bg-white/[0.14] text-white'
-                  : 'text-[#d7d7d7] hover:bg-white/[0.06] hover:text-white'
+                  ? 'bg-[color-mix(in_srgb,var(--vector-interactive)_18%,transparent)] text-[var(--vector-text)]'
+                  : 'text-[var(--vector-text-muted)] hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]'
               ].join(' ')}
               @click=${() => {
-                updateQuestionDraft(question.topic, (currentDraft) => ({
+                updateQuestionDraft(activeQuestion.topic, (currentDraft) => ({
                   ...currentDraft,
                   selectedOption: option,
                   customAnswer: ''
@@ -1174,12 +1177,12 @@ const renderInlineQuestionPrompt = (prompt: QuestionPromptState): TemplateResult
         })}
         ${Button({
           onClick: () => void closeQuestionPrompt(false),
-          disabled: prompt.questions.some((question) => {
-            const draft = prompt.drafts[question.topic] ?? {
+          disabled: prompt.questions.some((requiredQuestion) => {
+            const requiredDraft = prompt.drafts[requiredQuestion.topic] ?? {
               selectedOption: '',
               customAnswer: ''
             }
-            return !draft.selectedOption.trim() && !draft.customAnswer.trim()
+            return !requiredDraft.selectedOption.trim() && !requiredDraft.customAnswer.trim()
           }),
           children: 'Continue'
         })}
@@ -2027,9 +2030,9 @@ const renderChatStatusIndicator = (chatId: string, isActive: boolean): TemplateR
   return html`
     <span class="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
       ${isRunning
-        ? icon(LoaderCircle, 'xs', 'h-3.5 w-3.5 animate-spin text-[#8ab4ff]')
+        ? icon(LoaderCircle, 'xs', 'h-3.5 w-3.5 animate-spin text-[var(--vector-primary)]')
         : showCompleted
-          ? html`<span class="h-1.5 w-1.5 rounded-full bg-[#4da3ff]"></span>`
+          ? html`<span class="h-1.5 w-1.5 rounded-full bg-[var(--vector-interactive)]"></span>`
           : ''}
     </span>
   `
@@ -2050,13 +2053,17 @@ const renderChatList = (workspace: Workspace, activeChatId: string): TemplateRes
               type="button"
               class=${[
                 'flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-left transition-colors',
-                isActive ? 'bg-[#434343]' : 'bg-transparent hover:bg-[#434343]'
+                isActive
+                  ? 'bg-[var(--vector-surface-active)]'
+                  : 'bg-transparent hover:bg-[var(--vector-surface-hover)]'
               ].join(' ')}
               @click=${() => selectChat(chat.id)}
             >
               <span class="flex min-w-0 items-center gap-2">
                 ${renderChatStatusIndicator(chat.id, isActive)}
-                <span class="min-w-0 truncate text-[13px] font-medium leading-none text-[#f5f5f5]">
+                <span
+                  class="min-w-0 truncate text-[13px] font-medium leading-none text-[var(--vector-text)]"
+                >
                   ${chat.title}
                 </span>
               </span>
@@ -2065,7 +2072,7 @@ const renderChatList = (workspace: Workspace, activeChatId: string): TemplateRes
                   ? html`
                       <button
                         type="button"
-                        class="flex h-5 w-5 items-center justify-center text-[#8f8f8f] opacity-0 transition-all group-hover:opacity-100 hover:text-[#f28b82]"
+                        class="flex h-5 w-5 items-center justify-center text-[var(--vector-text-muted)] opacity-0 transition-all group-hover:opacity-100 hover:text-[var(--vector-error)]"
                         title="Delete chat"
                         @click=${(event: Event) => {
                           event.stopPropagation()
@@ -2076,7 +2083,7 @@ const renderChatList = (workspace: Workspace, activeChatId: string): TemplateRes
                       </button>
                     `
                   : ''}
-                <span class="text-[13px] leading-none text-[#b3b3b3]">
+                <span class="text-[13px] leading-none text-[var(--vector-text-muted)]">
                   ${formatRelativeTime(chat.updatedAt)}
                 </span>
               </span>
@@ -2095,11 +2102,11 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
         ? ''
         : html`
             <aside
-              class="m-1.5 mr-1 flex h-[calc(100%-12px)] w-[252px] min-w-[252px] flex-col rounded-xl border border-[#333] bg-[#1a1a1a] shadow-xl shadow-black/20 px-1 py-3"
+              class="m-1.5 mr-1 flex h-[calc(100%-12px)] w-[252px] min-w-[252px] flex-col rounded-xl border border-[var(--vector-border)] bg-[var(--vector-surface)] shadow-xl shadow-black/20 px-1 py-3"
             >
               <button
                 type="button"
-                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[#f5f5f5] transition-colors hover:bg-[#434343]"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[var(--vector-text)] transition-colors hover:bg-[var(--vector-surface-hover)]"
                 ?disabled=${activeWorkspace.path === DEFAULT_WORKSPACE_PATH}
                 @click=${() => createNewChat()}
               >
@@ -2108,10 +2115,12 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
               </button>
 
               <div class="mt-2 flex items-center justify-between px-3 pb-1 pt-2">
-                <span class="text-[13px] font-medium leading-none text-[#8f8f8f]">Threads</span>
+                <span class="text-[13px] font-medium leading-none text-[var(--vector-text-muted)]"
+                  >Threads</span
+                >
                 <button
                   type="button"
-                  class="flex h-7 w-7 items-center justify-center rounded-lg text-[#f5f5f5] transition-colors hover:bg-[#434343]"
+                  class="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--vector-text)] transition-colors hover:bg-[var(--vector-surface-hover)]"
                   title="Add New Project (Cmd/Ctrl + O)"
                   @click=${() => void openFolder()}
                 >
@@ -2123,7 +2132,7 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
                 <div class="space-y-1">
                   ${state.workspaces.length === 0
                     ? html`
-                        <p class="px-3 pt-3 text-[13px] leading-5 text-[#8f8f8f]">
+                        <p class="px-3 pt-3 text-[13px] leading-5 text-[var(--vector-text-muted)]">
                           Open a folder with Cmd/Ctrl + O to create your first project.
                         </p>
                       `
@@ -2141,10 +2150,10 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
                                 ${icon(
                                   isExpanded ? FolderOpen : Folder,
                                   'sm',
-                                  'shrink-0 text-[#f5f5f5]'
+                                  'shrink-0 text-[var(--vector-text)]'
                                 )}
                                 <span
-                                  class="truncate text-[15px] font-semibold leading-none text-[#f5f5f5]"
+                                  class="truncate text-[15px] font-semibold leading-none text-[var(--vector-text)]"
                                 >
                                   ${workspace.name}
                                 </span>
@@ -2152,7 +2161,7 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
 
                               <button
                                 type="button"
-                                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#8f8f8f] transition-colors hover:bg-[#434343] hover:text-[#f5f5f5]"
+                                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--vector-text-muted)] transition-colors hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]"
                                 title="New chat in ${workspace.name}"
                                 @click=${(event: Event) => {
                                   event.stopPropagation()
@@ -2173,7 +2182,7 @@ const renderSidebar = (activeWorkspace: Workspace, activeChatId: string): Templa
               <div class="mt-auto px-2 pt-2">
                 <button
                   type="button"
-                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[#f5f5f5] transition-colors hover:bg-[#434343] disabled:cursor-not-allowed disabled:opacity-60"
+                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[var(--vector-text)] transition-colors hover:bg-[var(--vector-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                   ?disabled=${state.authBusy}
                   @click=${openSettingsDialog}
                 >
@@ -2303,7 +2312,7 @@ const renderReviewDiff = (reviewFile: ReviewFile): TemplateResult => {
         if (row.kind === 'ellipsis') {
           return html`
             <div
-              class="border-y border-[#333333] bg-[#292929] px-4 py-1.5 text-center text-[11px] text-[#858585]"
+              class="border-y border-[var(--vector-border)] bg-[var(--vector-surface-raised)] px-4 py-1.5 text-center text-[11px] text-[var(--vector-text-muted)]"
             >
               ${row.text}
             </div>
@@ -2312,25 +2321,25 @@ const renderReviewDiff = (reviewFile: ReviewFile): TemplateResult => {
 
         const rowTone =
           row.kind === 'add'
-            ? 'bg-[#0f2a18]'
+            ? 'bg-[color-mix(in_srgb,var(--vector-diff-add)_18%,transparent)]'
             : row.kind === 'remove'
-              ? 'bg-[#321a1a]'
+              ? 'bg-[color-mix(in_srgb,var(--vector-diff-delete)_16%,transparent)]'
               : 'bg-transparent'
 
         return html`
           <div
             class=${[
-              'grid grid-cols-[56px_56px_minmax(0,1fr)] items-start gap-0 border-b border-[#2f2f2f] text-[12px] leading-5',
+              'grid grid-cols-[56px_56px_minmax(0,1fr)] items-start gap-0 border-b border-[var(--vector-border)] text-[12px] leading-5',
               rowTone
             ].join(' ')}
           >
-            <div class="select-none px-3 py-1 text-right font-mono text-[#666666]">
+            <div class="select-none px-3 py-1 text-right font-mono text-[var(--vector-text-muted)]">
               ${formatReviewLineNumber(row.leftLineNumber)}
             </div>
-            <div class="select-none px-3 py-1 text-right font-mono text-[#666666]">
+            <div class="select-none px-3 py-1 text-right font-mono text-[var(--vector-text-muted)]">
               ${formatReviewLineNumber(row.rightLineNumber)}
             </div>
-            <pre class="m-0 overflow-x-auto px-3 py-1 font-mono text-[#e6e6e6]">
+            <pre class="m-0 overflow-x-auto px-3 py-1 font-mono text-[var(--vector-text)]">
 ${row.kind === 'add' ? '+' : row.kind === 'remove' ? '-' : ' '}${row.text}</pre
             >
           </div>
@@ -2350,15 +2359,17 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
 
   return html`
     <aside
-      class="m-1.5 ml-1 flex h-[calc(100%-12px)] shrink-0 flex-col rounded-xl border border-[#333] bg-[#1a1a1a] shadow-xl shadow-black/20"
+      class="m-1.5 ml-1 flex h-[calc(100%-12px)] shrink-0 flex-col rounded-xl border border-[var(--vector-border)] bg-[var(--vector-surface)] shadow-xl shadow-black/20"
       style=${`width: ${REVIEW_SIDEBAR_WIDTH}px; min-width: ${REVIEW_SIDEBAR_WIDTH}px;`}
     >
-      <div class="flex items-start justify-between gap-3 border-b border-[#3b3b3b] px-4 pb-3 pt-4">
+      <div
+        class="flex items-start justify-between gap-3 border-b border-[var(--vector-border-strong)] px-4 pb-3 pt-4"
+      >
         <div class="min-w-0">
-          <div class="text-[#f5f5f5]">
+          <div class="text-[var(--vector-text)]">
             <span class="text-[15px] font-semibold">Review changes</span>
           </div>
-          <p class="mt-1 text-[12px] leading-5 text-[#9a9a9a]">
+          <p class="mt-1 text-[12px] leading-5 text-[var(--vector-text-muted)]">
             ${hasWorkspace
               ? `${state.reviewFiles.length} file${state.reviewFiles.length === 1 ? '' : 's'} in ${activeWorkspace.name}`
               : 'Open a workspace to review changes'}
@@ -2368,7 +2379,7 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
         <div class="flex items-center gap-1">
           <button
             type="button"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-[#b8b8b8] transition-colors hover:bg-[#343434] hover:text-[#f5f5f5] disabled:cursor-not-allowed disabled:opacity-40"
+            class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--vector-text-muted)] transition-colors hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)] disabled:cursor-not-allowed disabled:opacity-40"
             title="Refresh review"
             ?disabled=${!hasWorkspace || state.reviewLoading}
             @click=${() => scheduleReviewRefresh({ immediate: true, force: true })}
@@ -2382,7 +2393,7 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
         ${!hasWorkspace
           ? html`
               <div
-                class="rounded-2xl border border-dashed border-[#404040] px-4 py-5 text-sm text-[#9a9a9a]"
+                class="rounded-2xl border border-dashed border-[var(--vector-border-strong)] px-4 py-5 text-sm text-[var(--vector-text-muted)]"
               >
                 Open a git workspace to review changes inside the app.
               </div>
@@ -2390,7 +2401,7 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
           : state.reviewError
             ? html`
                 <div
-                  class="rounded-2xl border border-[#553636] bg-[#321f1f] px-4 py-5 text-sm text-[#f2b8b5]"
+                  class="rounded-2xl border border-[color-mix(in_srgb,var(--vector-error)_45%,transparent)] bg-[color-mix(in_srgb,var(--vector-error)_15%,transparent)] px-4 py-5 text-sm text-[var(--vector-error)]"
                 >
                   ${state.reviewError}
                 </div>
@@ -2398,7 +2409,7 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
             : state.reviewLoading && !hasFiles
               ? html`
                   <div
-                    class="flex items-center gap-3 rounded-2xl border border-[#3b3b3b] px-4 py-5 text-sm text-[#9a9a9a]"
+                    class="flex items-center gap-3 rounded-2xl border border-[var(--vector-border-strong)] px-4 py-5 text-sm text-[var(--vector-text-muted)]"
                   >
                     ${icon(LoaderCircle, 'sm', 'animate-spin')}
                     <span>Loading workspace diff…</span>
@@ -2407,13 +2418,15 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
               : !hasFiles
                 ? html`
                     <div
-                      class="rounded-2xl border border-dashed border-[#404040] px-4 py-5 text-sm text-[#9a9a9a]"
+                      class="rounded-2xl border border-dashed border-[var(--vector-border-strong)] px-4 py-5 text-sm text-[var(--vector-text-muted)]"
                     >
                       No uncommitted file changes in this workspace.
                     </div>
                   `
                 : html`
-                    <div class="overflow-hidden rounded-2xl border border-[#3b3b3b] bg-[#2d2d2d]">
+                    <div
+                      class="overflow-hidden rounded-2xl border border-[var(--vector-border-strong)] bg-[var(--vector-surface-raised)]"
+                    >
                       ${repeat(
                         state.reviewFiles,
                         (reviewFile) => reviewFile.path,
@@ -2421,27 +2434,37 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
                           const isExpanded = state.expandedReviewFiles.has(reviewFile.path)
 
                           return html`
-                            <section class=${index > 0 ? 'border-t border-[#3b3b3b]' : ''}>
+                            <section
+                              class=${index > 0
+                                ? 'border-t border-[var(--vector-border-strong)]'
+                                : ''}
+                            >
                               <button
                                 type="button"
-                                class="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#343434]"
+                                class="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[var(--vector-surface-hover)]"
                                 @click=${() => toggleReviewFileExpanded(reviewFile.path)}
                               >
                                 <div class="flex min-w-0 items-center gap-3">
-                                  <div class="truncate text-[13px] font-semibold text-[#f5f5f5]">
+                                  <div
+                                    class="truncate text-[13px] font-semibold text-[var(--vector-text)]"
+                                  >
                                     ${reviewFile.path}
                                   </div>
                                   <div
-                                    class="flex shrink-0 items-center gap-2 text-[11px] text-[#9a9a9a]"
+                                    class="flex shrink-0 items-center gap-2 text-[11px] text-[var(--vector-text-muted)]"
                                   >
-                                    <span class="text-[#73d07f]">+${reviewFile.added}</span>
-                                    <span class="text-[#ef8e8e]">-${reviewFile.removed}</span>
+                                    <span class="text-[var(--vector-diff-add)]"
+                                      >+${reviewFile.added}</span
+                                    >
+                                    <span class="text-[var(--vector-diff-delete)]"
+                                      >-${reviewFile.removed}</span
+                                    >
                                   </div>
                                 </div>
 
                                 <span
                                   class=${[
-                                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#383838] text-[#b8b8b8] transition-transform',
+                                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--vector-surface-active)] text-[var(--vector-text-muted)] transition-transform',
                                     isExpanded ? 'rotate-180' : ''
                                   ].join(' ')}
                                 >
@@ -2451,7 +2474,9 @@ const renderReviewSidebar = (activeWorkspace: Workspace): TemplateResult => {
 
                               ${isExpanded
                                 ? html`
-                                    <div class="border-t border-[#3b3b3b] px-3 py-3">
+                                    <div
+                                      class="border-t border-[var(--vector-border-strong)] px-3 py-3"
+                                    >
                                       ${renderReviewDiff(reviewFile)}
                                     </div>
                                   `
@@ -2471,8 +2496,10 @@ const renderNoWorkspaceState = (): TemplateResult => {
   return html`
     <div class="flex h-full items-center justify-center px-8 text-center">
       <div class="max-w-md space-y-3">
-        <div class="text-2xl font-semibold text-[#f5f5f5]">Open a workspace to start</div>
-        <p class="text-sm leading-6 text-[#8f8f8f]">
+        <div class="text-2xl font-semibold text-[var(--vector-text)]">
+          Open a workspace to start
+        </div>
+        <p class="text-sm leading-6 text-[var(--vector-text-muted)]">
           Use the folder-plus action or press Cmd/Ctrl + O. Only the conversation area scrolls.
         </p>
       </div>
@@ -2481,19 +2508,20 @@ const renderNoWorkspaceState = (): TemplateResult => {
 }
 
 const renderToolInvocation = (tool: ToolInvocation): TemplateResult => {
-  const statusTone = tool.status === 'error' ? 'text-[#f28b82]' : 'text-[#8f8f8f]'
+  const statusTone =
+    tool.status === 'error' ? 'text-[var(--vector-error)]' : 'text-[var(--vector-text-muted)]'
   const statusLabel = tool.status === 'error' ? 'error' : tool.status === 'running' ? 'running' : ''
 
-  let args: any = {}
+  let args: Record<string, string> = {}
   try {
-    args = JSON.parse(tool.argsText || '{}')
+    args = JSON.parse(tool.argsText || '{}') as Record<string, string>
   } catch {
     // Fallback if not valid JSON
   }
 
   const renderHeader = (label: string | TemplateResult): TemplateResult => html`
-    <div class="flex items-center gap-1.5 py-1 text-[#8f8f8f] select-none">
-      <span class="text-[13px] font-medium text-[#f5f5f5]">${label}</span>
+    <div class="flex items-center gap-1.5 py-1 text-[var(--vector-text-muted)] select-none">
+      <span class="text-[13px] font-medium text-[var(--vector-text)]">${label}</span>
       ${statusLabel
         ? html`<span class=${['text-[12px] font-medium', statusTone].join(' ')}
             >${statusLabel}</span
@@ -2506,9 +2534,11 @@ const renderToolInvocation = (tool: ToolInvocation): TemplateResult => {
     return html`
       <details class="overflow-hidden" ?open=${false}>
         <summary
-          class="flex cursor-pointer list-none items-center gap-1.5 py-1 select-none marker:hidden text-[#8f8f8f]"
+          class="flex cursor-pointer list-none items-center gap-1.5 py-1 select-none marker:hidden text-[var(--vector-text-muted)]"
         >
-          <span class="text-[13px] font-medium text-[#f5f5f5]">bash ${args.command || ''}</span>
+          <span class="text-[13px] font-medium text-[var(--vector-text)]"
+            >bash ${args.command || ''}</span
+          >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="14"
@@ -2532,12 +2562,14 @@ const renderToolInvocation = (tool: ToolInvocation): TemplateResult => {
         <div class="pt-2">
           ${tool.output
             ? html`<pre
-                class="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-[#2a2a2a] px-3 py-2 text-xs leading-5 text-[#d8d8d8]"
+                class="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--vector-surface-raised)] px-3 py-2 text-xs leading-5 text-[var(--vector-text)]"
               >
 ${tool.output}</pre
               >`
             : tool.status === 'running'
-              ? html`<div class="mt-3 text-xs text-[#8f8f8f]">Waiting for output…</div>`
+              ? html`<div class="mt-3 text-xs text-[var(--vector-text-muted)]">
+                  Waiting for output…
+                </div>`
               : ''}
         </div>
       </details>
@@ -2545,29 +2577,34 @@ ${tool.output}</pre
   }
 
   if (tool.name === 'read') {
-    return renderHeader(html`read <span class="text-[#8ab4ff]">${args.path || ''}</span>`)
+    return renderHeader(
+      html`read <span class="text-[var(--vector-info)]">${args.path || ''}</span>`
+    )
   }
 
   if (tool.name === 'ls') {
-    return renderHeader(html`ls <span class="text-[#8ab4ff]">${args.path || '.'}</span>`)
+    return renderHeader(html`ls <span class="text-[var(--vector-info)]">${args.path || '.'}</span>`)
   }
 
   if (tool.name === 'find') {
     return renderHeader(
-      html`find <span class="text-[#8ab4ff]">${args.pattern || ''}</span> in ${args.path || '.'}`
+      html`find <span class="text-[var(--vector-info)]">${args.pattern || ''}</span> in
+        ${args.path || '.'}`
     )
   }
 
   if (tool.name === 'grep') {
     return renderHeader(
-      html`grep <span class="text-[#8ab4ff]">${args.pattern || ''}</span> in ${args.path || '.'}`
+      html`grep <span class="text-[var(--vector-info)]">${args.pattern || ''}</span> in
+        ${args.path || '.'}`
     )
   }
 
   if (tool.name === 'write') {
     const lines = (args.content || '').split('\n').length
     return renderHeader(
-      html`write <span class="text-[#8ab4ff]">${args.path || ''}</span> <span class="text-[#7ee787]">+${lines}</span>`
+      html`write <span class="text-[var(--vector-info)]">${args.path || ''}</span>
+        <span class="text-[var(--vector-diff-add)]">+${lines}</span>`
     )
   }
 
@@ -2575,16 +2612,18 @@ ${tool.output}</pre
     const added = (args.newText || '').split('\n').length
     const removed = (args.oldText || '').split('\n').length
     return renderHeader(
-      html`edit <span class="text-[#8ab4ff]">${args.path || ''}</span> <span class="text-[#7ee787]">+${added}</span> <span class="text-[#ff7b72]">-${removed}</span>`
+      html`edit <span class="text-[var(--vector-info)]">${args.path || ''}</span>
+        <span class="text-[var(--vector-diff-add)]">+${added}</span>
+        <span class="text-[var(--vector-diff-delete)]">-${removed}</span>`
     )
   }
 
   return html`
     <details class="overflow-hidden" ?open=${false}>
       <summary
-        class="flex cursor-pointer list-none items-center gap-1.5 py-1 select-none marker:hidden text-[#8f8f8f]"
+        class="flex cursor-pointer list-none items-center gap-1.5 py-1 select-none marker:hidden text-[var(--vector-text-muted)]"
       >
-        <span class="text-[13px] font-medium text-[#f5f5f5]">${tool.name}</span>
+        <span class="text-[13px] font-medium text-[var(--vector-text)]">${tool.name}</span>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="14"
@@ -2608,20 +2647,22 @@ ${tool.output}</pre
       <div class="pt-2">
         ${tool.argsText
           ? html`<pre
-              class="mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-[#2d2d2d] px-3 py-2 text-xs leading-5 text-[#bdbdbd]"
+              class="mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--vector-surface-raised)] px-3 py-2 text-xs leading-5 text-[var(--vector-text-muted)]"
             >
 ${tool.argsText}</pre
             >`
           : ''}
         ${tool.output
           ? html`<pre
-              class="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-[#2a2a2a] px-3 py-2 text-xs leading-5 text-[#d8d8d8]"
+              class="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--vector-surface-raised)] px-3 py-2 text-xs leading-5 text-[var(--vector-text)]"
             >
 ${tool.output}</pre
-              >`
-            : tool.status === 'running'
-              ? html`<div class="mt-3 text-xs text-[#8f8f8f]">Waiting for output…</div>`
-              : ''}
+            >`
+          : tool.status === 'running'
+            ? html`<div class="mt-3 text-xs text-[var(--vector-text-muted)]">
+                Waiting for output…
+              </div>`
+            : ''}
       </div>
     </details>
   `
@@ -2636,12 +2677,14 @@ const renderMessage = (message: Message): TemplateResult => {
     <div class=${['flex w-full', isAssistant ? 'justify-start' : 'justify-end'].join(' ')}>
       ${isAssistant
         ? html`
-            <div class="max-w-[640px] space-y-3 text-[15px] leading-[1.55] text-[#f5f5f5]">
+            <div
+              class="max-w-[640px] space-y-3 text-[15px] leading-[1.55] text-[var(--vector-text)]"
+            >
               ${hasThinking
                 ? html`
                     <details class="overflow-hidden" ?open=${message.streaming && !message.content}>
                       <summary
-                        class="flex cursor-pointer list-none items-center gap-1.5 py-1 select-none marker:hidden text-[#8f8f8f]"
+                        class="flex cursor-pointer list-none items-center gap-1.5 py-1 select-none marker:hidden text-[var(--vector-text-muted)]"
                       >
                         <span class="text-[13px] font-medium">Thinking</span>
                         <svg
@@ -2675,7 +2718,9 @@ const renderMessage = (message: Message): TemplateResult => {
                 : ''}
               ${message.streaming
                 ? html`
-                    <div class="mt-2 flex items-center gap-2 text-xs text-[#8f8f8f]">
+                    <div
+                      class="mt-2 flex items-center gap-2 text-xs text-[var(--vector-text-muted)]"
+                    >
                       ${icon(LoaderCircle, 'xs', 'animate-spin')}
                       <span>Responding</span>
                     </div>
@@ -2685,7 +2730,7 @@ const renderMessage = (message: Message): TemplateResult => {
           `
         : html`
             <div
-              class="max-w-[360px] rounded-2xl bg-[#434343] px-4 py-3 text-[15px] leading-[1.45] text-[#f5f5f5]"
+              class="max-w-[360px] rounded-2xl bg-[var(--vector-surface-active)] px-4 py-3 text-[15px] leading-[1.45] text-[var(--vector-text)]"
             >
               <markdown-block .content=${message.content}></markdown-block>
             </div>
@@ -2700,7 +2745,7 @@ const renderOnboarding = (): TemplateResult => {
       <div class="flex flex-col items-center gap-4">
         <button
           type="button"
-          class="inline-flex cursor-pointer items-center gap-3 rounded-full border border-[#4b5563] bg-[#3a3a3a] px-6 py-4 text-[16px] font-medium text-[#f5f5f5] transition-colors hover:bg-[#434343] disabled:cursor-not-allowed disabled:opacity-60"
+          class="inline-flex cursor-pointer items-center gap-3 rounded-full border border-[var(--vector-border-strong)] bg-[var(--vector-surface-active)] px-6 py-4 text-[16px] font-medium text-[var(--vector-text)] transition-colors hover:bg-[var(--vector-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
           ?disabled=${state.authBusy}
           @click=${() => void loginCodex()}
         >
@@ -2711,7 +2756,7 @@ const renderOnboarding = (): TemplateResult => {
         </button>
 
         ${state.authError
-          ? html`<p class="max-w-md text-center text-sm leading-6 text-[#f28b82]">
+          ? html`<p class="max-w-md text-center text-sm leading-6 text-[var(--vector-error)]">
               ${state.authError}
             </p>`
           : ''}
@@ -2726,7 +2771,7 @@ const renderTerminalDock = (): TemplateResult => {
   return html`
     <div
       class=${[
-        'terminal-dock relative w-full shrink-0 self-stretch flex-col overflow-hidden border-t border-[#353535] bg-[#171717] transition-[opacity] duration-200',
+        'terminal-dock relative w-full shrink-0 self-stretch flex-col overflow-hidden border-t border-[var(--vector-border)] bg-[var(--vector-bg)] transition-[opacity] duration-200',
         state.terminalDockOpen ? 'flex opacity-100' : 'hidden h-0 opacity-0'
       ].join(' ')}
       style=${state.terminalDockOpen ? `height: ${state.terminalHeight}px;` : ''}
@@ -2735,9 +2780,7 @@ const renderTerminalDock = (): TemplateResult => {
         class="group absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize transition-colors hover:bg-white/10"
         @mousedown=${onTerminalResizeStart}
       ></div>
-      <div
-        class="flex items-center justify-between gap-3 bg-[#171717] pr-3"
-      >
+      <div class="flex items-center justify-between gap-3 bg-[var(--vector-bg)] pr-3">
         <div class="flex min-w-0 items-end overflow-x-auto">
           ${repeat(
             state.terminalSessions,
@@ -2748,10 +2791,10 @@ const renderTerminalDock = (): TemplateResult => {
               return html`
                 <div
                   class=${[
-                    'flex min-w-0 items-center gap-2 px-3 py-1.5 text-sm transition-colors border-r border-[#2a2a2a]',
+                    'flex min-w-0 items-center gap-2 px-3 py-1.5 text-sm transition-colors border-r border-[var(--vector-border)]',
                     isActive
-                      ? 'bg-[#000000] text-[#f5f5f5]'
-                      : 'bg-transparent text-[#b3b3b3] hover:bg-[#303030] border-b border-[#2a2a2a]'
+                      ? 'bg-[var(--vector-surface)] text-[var(--vector-text)]'
+                      : 'bg-transparent text-[var(--vector-text-muted)] hover:bg-[var(--vector-surface-hover)] border-b border-[var(--vector-border)]'
                   ].join(' ')}
                 >
                   <button
@@ -2763,7 +2806,7 @@ const renderTerminalDock = (): TemplateResult => {
                   </button>
                   <button
                     type="button"
-                    class="text-[#8f8f8f] transition-colors hover:text-[#f28b82]"
+                    class="text-[var(--vector-text-muted)] transition-colors hover:text-[var(--vector-error)]"
                     title="Close terminal"
                     @click=${() => void closeTerminal(terminal.id)}
                   >
@@ -2775,7 +2818,7 @@ const renderTerminalDock = (): TemplateResult => {
           )}
           <button
             type="button"
-            class="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[#b3b3b3] transition-colors hover:bg-[#303030] hover:text-[#f5f5f5]"
+            class="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--vector-text-muted)] transition-colors hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]"
             title="New Terminal"
             @click=${() => void createTerminal()}
           >
@@ -2784,10 +2827,12 @@ const renderTerminalDock = (): TemplateResult => {
         </div>
       </div>
 
-      <div class="min-h-0 flex-1 bg-[#000000]">
+      <div class="min-h-0 flex-1 bg-[var(--vector-bg)]">
         ${state.terminalSessions.length === 0
           ? html`
-              <div class="flex h-full items-center justify-center text-sm text-[#8f8f8f]">
+              <div
+                class="flex h-full items-center justify-center text-sm text-[var(--vector-text-muted)]"
+              >
                 Open a terminal with Cmd/Ctrl + J
               </div>
             `
@@ -2819,8 +2864,10 @@ const renderTerminalDock = (): TemplateResult => {
 export const App = (): TemplateResult => {
   if (!state.authChecked) {
     return html`
-      <div class="flex min-h-screen items-center justify-center bg-[#111] px-6 text-[#f5f5f5]">
-        <div class="flex items-center gap-3 text-sm text-[#8f8f8f]">
+      <div
+        class="flex min-h-screen items-center justify-center bg-[var(--vector-bg)] px-6 text-[var(--vector-text)]"
+      >
+        <div class="flex items-center gap-3 text-sm text-[var(--vector-text-muted)]">
           ${icon(LoaderCircle, 'sm', 'animate-spin')}
           <span>Checking login…</span>
         </div>
@@ -2830,7 +2877,9 @@ export const App = (): TemplateResult => {
 
   if (!state.loggedIn) {
     return html`
-      <div class="flex min-h-screen items-center justify-center bg-[#111] px-6 text-[#f5f5f5]">
+      <div
+        class="flex min-h-screen items-center justify-center bg-[var(--vector-bg)] px-6 text-[var(--vector-text)]"
+      >
         ${renderOnboarding()}
       </div>
     `
@@ -2846,10 +2895,10 @@ export const App = (): TemplateResult => {
     : 'right: 10px;'
 
   return html`
-    <div class="relative flex h-screen bg-[#111] text-[#f5f5f5]">
+    <div class="relative flex h-screen bg-[var(--vector-bg)] text-[var(--vector-text)]">
       <button
         type="button"
-        class="absolute top-4 flex h-9 w-9 items-center justify-center rounded-lg text-[#f5f5f5] transition-all hover:bg-[#3f3f3f] z-10"
+        class="absolute top-4 flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vector-text)] transition-all hover:bg-[var(--vector-surface-hover)] z-10"
         style=${state.sidebarCollapsed ? 'left: 10px;' : 'left: 262px;'}
         aria-label=${state.sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
         @click=${toggleSidebar}
@@ -2863,7 +2912,7 @@ export const App = (): TemplateResult => {
       >
         <button
           type="button"
-          class="flex h-9 w-9 items-center justify-center rounded-lg text-[#f5f5f5] transition-all hover:bg-[#3f3f3f]"
+          class="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vector-text)] transition-all hover:bg-[var(--vector-surface-hover)]"
           aria-label="Toggle terminal"
           title="Toggle terminal"
           @click=${() => void toggleTerminalDock()}
@@ -2874,33 +2923,35 @@ export const App = (): TemplateResult => {
         <button
           type="button"
           class=${[
-            'group flex h-9 items-center justify-center gap-2 rounded-lg px-2 text-[#f5f5f5] transition-all hover:bg-[#3f3f3f]',
-            state.reviewSidebarOpen ? 'bg-[#3a3a3a]' : ''
+            'group flex h-9 items-center justify-center gap-2 rounded-lg px-2 text-[var(--vector-text)] transition-all hover:bg-[var(--vector-surface-hover)]',
+            state.reviewSidebarOpen ? 'bg-[var(--vector-surface-active)]' : ''
           ].join(' ')}
           aria-label="Toggle review sidebar"
           title="Toggle review sidebar (Cmd/Ctrl + Alt + B)"
           @click=${toggleReviewSidebar}
         >
           ${icon(Diff, 'sm')}
-          ${state.reviewFiles.length > 0
-            ? html`
-                <div class="flex items-center gap-1.5 text-[11px] font-bold">
-                  <span class="text-[#7ee787]">
-                    +${state.reviewFiles.reduce((acc, f) => acc + f.added, 0)}
-                  </span>
-                  <span class="text-[#ff7b72]">
-                    -${state.reviewFiles.reduce((acc, f) => acc + f.removed, 0)}
-                  </span>
-                </div>
-              `
-            : ''}
+          ${
+            state.reviewFiles.length > 0
+              ? html`
+                  <div class="flex items-center gap-1.5 text-[11px] font-bold">
+                    <span class="text-[var(--vector-diff-add)]">
+                      +${state.reviewFiles.reduce((acc, f) => acc + f.added, 0)}
+                    </span>
+                    <span class="text-[var(--vector-diff-delete)]">
+                      -${state.reviewFiles.reduce((acc, f) => acc + f.removed, 0)}
+                    </span>
+                  </div>
+                `
+              : ''
+          }
         </button>
       </div>
 
       ${renderSidebar(activeWorkspace, activeChat?.id ?? '')}
 
       <div class="flex min-w-0 flex-1">
-        <main class="flex min-w-0 flex-1 bg-[#111] pb-0 pt-6 ${state.sidebarCollapsed ? '' : 'rounded-tl-2xl'}">
+        <main class="flex min-w-0 flex-1 bg-[var(--vector-bg)] pb-0 pt-6 ${state.sidebarCollapsed ? '' : 'rounded-tl-2xl'}">
           <div class="flex h-full w-full min-h-0 flex-col overflow-hidden">
             <section class="flex min-h-0 flex-1 flex-col px-6">
               <div class="flex min-h-0 flex-1 overflow-hidden">
@@ -2923,7 +2974,7 @@ export const App = (): TemplateResult => {
 
               <div class="flex shrink-0 justify-center pb-1.5 pt-1.5">
                 <div
-                  class="relative w-full max-w-[760px] rounded-[24px] border border-[#333] bg-[#1a1a1a] shadow-xl shadow-black/20 px-[18px] pb-3 pt-2.5"
+                  class="relative w-full max-w-[760px] rounded-[24px] border border-[var(--vector-border)] bg-[var(--vector-surface)] shadow-xl shadow-black/20 px-[18px] pb-3 pt-2.5"
                 >
                   ${activeQuestionPrompt ? renderInlineQuestionPrompt(activeQuestionPrompt) : ''}
 
@@ -2950,19 +3001,20 @@ export const App = (): TemplateResult => {
                             (image) => image.id,
                             (image) => html`
                               <div
-                                class="flex h-14 items-center gap-2 rounded-lg border border-[#555] bg-[#343434] px-2"
+                                class="flex h-14 items-center gap-2 rounded-lg border border-[var(--vector-border-strong)] bg-[var(--vector-surface-raised)] px-2"
                               >
                                 <img
                                   src=${image.previewUrl}
                                   alt=${image.name}
                                   class="h-10 w-10 rounded-md object-cover"
                                 />
-                                <span class="max-w-[180px] truncate text-xs text-[#d7d7d7]"
+                                <span
+                                  class="max-w-[180px] truncate text-xs text-[var(--vector-text)]"
                                   >${image.name}</span
                                 >
                                 <button
                                   type="button"
-                                  class="rounded p-1 text-[#a7a7a7] hover:bg-[#3f3f3f] hover:text-white"
+                                  class="rounded p-1 text-[var(--vector-text-muted)] hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]"
                                   aria-label="Remove image"
                                   @click=${() => removeComposerImage(image.id)}
                                 >
@@ -2976,7 +3028,7 @@ export const App = (): TemplateResult => {
                   }
 
                   <textarea
-                    class="min-h-[40px] max-h-[168px] w-full resize-none overflow-y-hidden bg-transparent pb-0 text-base font-medium leading-6 text-[#f5f5f5] outline-none placeholder:text-[#a3a3a3] disabled:cursor-not-allowed disabled:opacity-70"
+                    class="min-h-[40px] max-h-[168px] w-full resize-none overflow-y-hidden bg-transparent pb-0 text-base font-medium leading-6 text-[var(--vector-text)] outline-none placeholder:text-[var(--vector-text-muted)] disabled:cursor-not-allowed disabled:opacity-70"
                     style="scrollbar-gutter: stable;"
                     placeholder=${hasWorkspace ? 'Build anything' : 'Open a folder to start'}
                     .value=${state.composer}
@@ -2994,7 +3046,7 @@ export const App = (): TemplateResult => {
                     <div class="flex min-w-0 flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        class="flex h-9 w-9 items-center justify-center rounded-lg text-[#d4d4d4] transition-all hover:bg-[#434343] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        class="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vector-text)] transition-all hover:bg-[var(--vector-surface-hover)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label="Attach images"
                         title="Attach images"
                         ?disabled=${!activeChat || isSending}
@@ -3048,9 +3100,9 @@ export const App = (): TemplateResult => {
                       }
                       ?disabled=${
                         state.activeQuestionPrompt ||
-                        (!(state.composer.trim() || state.composerImages.length > 0) ||
+                        ((!(state.composer.trim() || state.composerImages.length > 0) ||
                           !activeChat) &&
-                        !isSending
+                          !isSending)
                       }
                       @click=${() => void sendMessage()}
                     >
@@ -3143,9 +3195,9 @@ export const App = (): TemplateResult => {
               })}
 
               <div
-                class="mt-4 flex items-center gap-2 rounded-md bg-red-500/10 p-3 text-sm text-[#f5c2c0]"
+                class="mt-4 flex items-center gap-2 rounded-md bg-[color-mix(in_srgb,var(--vector-error)_12%,transparent)] p-3 text-sm text-[var(--vector-error)]"
               >
-                ${icon(AlertTriangle, 'sm', 'text-[#f28b82]')}
+                ${icon(AlertTriangle, 'sm', 'text-[var(--vector-error)]')}
                 <span>This action cannot be undone.</span>
               </div>
 
