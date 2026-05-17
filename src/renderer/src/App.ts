@@ -2375,7 +2375,7 @@ const renderMessage = (message: Message): TemplateResult => {
       ${isAssistant
         ? html`
             <div
-              class="max-w-[640px] space-y-3 text-[15px] leading-[1.55] text-[var(--vector-text)]"
+              class="max-w-[960px] space-y-3 text-[15px] leading-[1.55] text-[var(--vector-text)]"
             >
               ${hasThinking
                 ? html`
@@ -2591,48 +2591,48 @@ export const App = (): TemplateResult => {
           @click=${toggleReviewSidebar}
         >
           ${icon(Diff, 'sm')}
-          ${
-            state.reviewFiles.length > 0
-              ? html`
-                  <div class="flex items-center gap-1.5 text-[11px] font-bold">
-                    <span class="text-[var(--vector-diff-add)]">
-                      +${state.reviewFiles.reduce((acc, f) => acc + f.added, 0)}
-                    </span>
-                    <span class="text-[var(--vector-diff-delete)]">
-                      -${state.reviewFiles.reduce((acc, f) => acc + f.removed, 0)}
-                    </span>
-                  </div>
-                `
-              : ''
-          }
+          ${state.reviewFiles.length > 0
+            ? html`
+                <div class="flex items-center gap-1.5 text-[11px] font-bold">
+                  <span class="text-[var(--vector-diff-add)]">
+                    +${state.reviewFiles.reduce((acc, f) => acc + f.added, 0)}
+                  </span>
+                  <span class="text-[var(--vector-diff-delete)]">
+                    -${state.reviewFiles.reduce((acc, f) => acc + f.removed, 0)}
+                  </span>
+                </div>
+              `
+            : ''}
         </button>
       </div>
 
       ${renderSidebar(activeWorkspace, activeChat?.id ?? '')}
 
       <div class="flex min-w-0 flex-1">
-        <main class="flex min-w-0 flex-1 bg-[var(--vector-bg)] pb-0 pt-6 ${state.sidebarCollapsed ? '' : 'rounded-tl-2xl'}">
+        <main
+          class="flex min-w-0 flex-1 bg-[var(--vector-bg)] pb-0 pt-6 ${state.sidebarCollapsed
+            ? ''
+            : 'rounded-tl-2xl'}"
+        >
           <div class="flex h-full w-full min-h-0 flex-col overflow-hidden">
-            <section class="flex min-h-0 flex-1 flex-col px-6">
-              <div class="flex min-h-0 flex-1 overflow-hidden">
-                <div
-                  class="mx-auto w-full max-w-[760px] overflow-y-auto px-1"
-                  ${scrollToBottom()}
-                  ${ref((element?: Element | null) => {
-                    chatScrollContainer = element instanceof HTMLDivElement ? element : null
-                  })}
-                >
+            <section class="flex min-h-0 flex-1 flex-col">
+              <div
+                class="min-h-0 flex-1 overflow-y-auto px-6"
+                ${scrollToBottom()}
+                ${ref((element?: Element | null) => {
+                  chatScrollContainer = element instanceof HTMLDivElement ? element : null
+                })}
+              >
+                <div class="mx-auto w-full max-w-[1020px]">
                   <div class="space-y-[18px] pt-16">
-                    ${
-                      activeChat
-                        ? activeChat.messages.map((message) => renderMessage(message))
-                        : renderNoWorkspaceState()
-                    }
+                    ${activeChat
+                      ? activeChat.messages.map((message) => renderMessage(message))
+                      : renderNoWorkspaceState()}
                   </div>
                 </div>
               </div>
 
-              <div class="flex shrink-0 justify-center pb-1.5 pt-1.5">
+              <div class="flex shrink-0 justify-center px-6 pb-1.5 pt-1.5">
                 <div
                   class="relative w-full max-w-[760px] rounded-[24px] border border-[var(--vector-border)] bg-[var(--vector-surface)] shadow-xl shadow-black/20 px-[18px] pb-3 pt-2.5"
                 >
@@ -2651,39 +2651,36 @@ export const App = (): TemplateResult => {
                     }}
                   />
 
-                  ${
-                    state.composerImages.length > 0
-                      ? html`<div class="mb-2 flex flex-wrap gap-2">
-                          ${repeat(
-                            state.composerImages,
-                            (image) => image.id,
-                            (image) => html`
-                              <div
-                                class="flex h-14 items-center gap-2 rounded-lg border border-[var(--vector-border-strong)] bg-[var(--vector-surface-raised)] px-2"
+                  ${state.composerImages.length > 0
+                    ? html`<div class="mb-2 flex flex-wrap gap-2">
+                        ${repeat(
+                          state.composerImages,
+                          (image) => image.id,
+                          (image) => html`
+                            <div
+                              class="flex h-14 items-center gap-2 rounded-lg border border-[var(--vector-border-strong)] bg-[var(--vector-surface-raised)] px-2"
+                            >
+                              <img
+                                src=${image.previewUrl}
+                                alt=${image.name}
+                                class="h-10 w-10 rounded-md object-cover"
+                              />
+                              <span class="max-w-[180px] truncate text-xs text-[var(--vector-text)]"
+                                >${image.name}</span
                               >
-                                <img
-                                  src=${image.previewUrl}
-                                  alt=${image.name}
-                                  class="h-10 w-10 rounded-md object-cover"
-                                />
-                                <span
-                                  class="max-w-[180px] truncate text-xs text-[var(--vector-text)]"
-                                  >${image.name}</span
-                                >
-                                <button
-                                  type="button"
-                                  class="rounded p-1 text-[var(--vector-text-muted)] hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]"
-                                  aria-label="Remove image"
-                                  @click=${() => removeComposerImage(image.id)}
-                                >
-                                  ${icon(X, 'sm')}
-                                </button>
-                              </div>
-                            `
-                          )}
-                        </div>`
-                      : ''
-                  }
+                              <button
+                                type="button"
+                                class="rounded p-1 text-[var(--vector-text-muted)] hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]"
+                                aria-label="Remove image"
+                                @click=${() => removeComposerImage(image.id)}
+                              >
+                                ${icon(X, 'sm')}
+                              </button>
+                            </div>
+                          `
+                        )}
+                      </div>`
+                    : ''}
 
                   <textarea
                     class="min-h-[40px] max-h-[168px] w-full resize-none overflow-y-hidden bg-transparent pb-0 text-base font-medium leading-6 text-[var(--vector-text)] outline-none placeholder:text-[var(--vector-text-muted)] disabled:cursor-not-allowed disabled:opacity-70"
@@ -2702,17 +2699,6 @@ export const App = (): TemplateResult => {
 
                   <div class="mt-1 flex items-center justify-between gap-3 pt-1">
                     <div class="flex min-w-0 flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        class="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vector-text)] transition-all hover:bg-[var(--vector-surface-hover)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                        aria-label="Attach images"
-                        title="Attach images"
-                        ?disabled=${!activeChat || isSending}
-                        @click=${openComposerImagePicker}
-                      >
-                        ${icon(ImagePlus, 'sm')}
-                      </button>
-
                       ${Select({
                         className: 'model-select-btn',
                         variant: 'ghost',
@@ -2729,7 +2715,6 @@ export const App = (): TemplateResult => {
                         width: 'auto',
                         size: 'md'
                       })}
-
                       ${Select({
                         className: 'thinking-select-btn',
                         variant: 'ghost',
@@ -2748,54 +2733,62 @@ export const App = (): TemplateResult => {
                       })}
                     </div>
 
-                    <button
-                      type="button"
-                      class="shrink-0 flex h-11 w-11 items-center justify-center bg-transparent text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      title=${
-                        isSending
+                    <div class="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        class="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vector-text)] transition-all hover:bg-[var(--vector-surface-hover)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Attach images"
+                        title="Attach images"
+                        ?disabled=${!activeChat || isSending}
+                        @click=${openComposerImagePicker}
+                      >
+                        ${icon(ImagePlus, 'sm')}
+                      </button>
+
+                      <button
+                        type="button"
+                        class="shrink-0 flex h-11 w-11 items-center justify-center bg-transparent text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        title=${isSending
                           ? 'Assistant responding. This becomes a stop control.'
-                          : 'Send message'
-                      }
-                      ?disabled=${
-                        (!(state.composer.trim() || state.composerImages.length > 0) ||
+                          : 'Send message'}
+                        ?disabled=${(!(state.composer.trim() || state.composerImages.length > 0) ||
                           !activeChat ||
                           state.models.length === 0) &&
-                        !isSending
-                      }
-                      @click=${() => void sendMessage()}
-                    >
-                    ${
-                      isSending
-                        ? html`
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="32"
-                              height="32"
-                              viewBox="0 0 24 24"
-                              fill="currentColor"
-                              aria-hidden="true"
-                            >
-                              <path
-                                d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4 14H8V8h8v8z"
-                              />
-                            </svg>
-                          `
-                        : html`
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="32"
-                              height="32"
-                              viewBox="0 0 24 24"
-                              fill="currentColor"
-                              aria-hidden="true"
-                            >
-                              <path
-                                d="M17 3.34a10 10 0 1 1-14.995 8.984L2 12l.005-.324A10 10 0 0 1 17 3.34M12.02 7l-.163.01l-.086.016l-.142.045l-.113.054l-.07.043l-.095.071l-.058.054l-4 4l-.083.094a1 1 0 0 0 1.497 1.32L11 10.414V16l.007.117A1 1 0 0 0 13 16v-5.585l2.293 2.292l.094.083a1 1 0 0 0 1.32-1.497l-4-4l-.082-.073l-.089-.064l-.113-.062l-.081-.034l-.113-.034l-.112-.02z"
-                              />
-                            </svg>
-                          `
-                    }
-                  </button>
+                        !isSending}
+                        @click=${() => void sendMessage()}
+                      >
+                        ${isSending
+                          ? html`
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="32"
+                                height="32"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4 14H8V8h8v8z"
+                                />
+                              </svg>
+                            `
+                          : html`
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="32"
+                                height="32"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M17 3.34a10 10 0 1 1-14.995 8.984L2 12l.005-.324A10 10 0 0 1 17 3.34M12.02 7l-.163.01l-.086.016l-.142.045l-.113.054l-.07.043l-.095.071l-.058.054l-4 4l-.083.094a1 1 0 0 0 1.497 1.32L11 10.414V16l.007.117A1 1 0 0 0 13 16v-5.585l2.293 2.292l.094.083a1 1 0 0 0 1.32-1.497l-4-4l-.082-.073l-.089-.064l-.113-.062l-.081-.034l-.113-.034l-.112-.02z"
+                                />
+                              </svg>
+                            `}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
@@ -2833,7 +2826,6 @@ export const App = (): TemplateResult => {
           })}
         `
       })}
-
       ${Dialog({
         isOpen: Boolean(state.deleteChatId),
         onClose: closeDeleteChatDialog,
@@ -2873,7 +2865,6 @@ export const App = (): TemplateResult => {
           })}
         `
       })}
-
     </div>
   `
 }
