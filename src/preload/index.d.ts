@@ -9,9 +9,27 @@ type PromptImageAttachment = {
   name?: string
 }
 
+type AgentProviderMetadata = {
+  id: string
+  name: string
+  iconSvg: string
+}
+
+type ModelOption = {
+  id: string
+  name: string
+  providerId: string
+  optionGroups: Array<{
+    id: 'thinking'
+    label: string
+    options: Array<{ id: ThinkingLevel; label: string }>
+  }>
+}
+
 interface AuthState {
   loggedIn: boolean
-  models: Array<{ id: string; name: string; thinkingLevels: ThinkingLevel[] }>
+  providers: AgentProviderMetadata[]
+  models: ModelOption[]
   defaultModelId: string
 }
 
@@ -73,7 +91,7 @@ type ReviewFile = {
   removed: number
 }
 
-interface PiDesktopApi {
+interface VectorDesktopApi {
   getAuthState: () => Promise<AuthState>
   openFolder: () => Promise<{ path: string; name: string } | null>
   getWorkspaceDiff: (payload: {
@@ -85,6 +103,7 @@ interface PiDesktopApi {
     prompt: string
     images?: PromptImageAttachment[]
     modelId: string
+    providerId?: string
     thinkingLevel: ThinkingLevel
   }) => Promise<{ ok: true; requestId: string } | { ok: false; error: string }>
   showChatNotification: (payload: {
@@ -117,6 +136,6 @@ interface PiDesktopApi {
 declare global {
   interface Window {
     electron: ElectronAPI
-    api: PiDesktopApi
+    api: VectorDesktopApi
   }
 }

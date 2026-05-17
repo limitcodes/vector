@@ -10,9 +10,27 @@ type PromptImageAttachment = {
   name?: string
 }
 
+type AgentProviderMetadata = {
+  id: string
+  name: string
+  iconSvg: string
+}
+
+type ModelOption = {
+  id: string
+  name: string
+  providerId: string
+  optionGroups: Array<{
+    id: 'thinking'
+    label: string
+    options: Array<{ id: ThinkingLevel; label: string }>
+  }>
+}
+
 type AuthState = {
   loggedIn: boolean
-  models: Array<{ id: string; name: string; thinkingLevels: ThinkingLevel[] }>
+  providers: AgentProviderMetadata[]
+  models: ModelOption[]
   defaultModelId: string
 }
 
@@ -92,6 +110,7 @@ const api = {
     prompt: string
     images?: PromptImageAttachment[]
     modelId: string
+    providerId?: string
     thinkingLevel: ThinkingLevel
   }): Promise<{ ok: true; requestId: string } | { ok: false; error: string }> => {
     return ipcRenderer.invoke('agent:send-message', payload) as Promise<

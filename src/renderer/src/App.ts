@@ -48,7 +48,18 @@ type Role = 'user' | 'assistant'
 type ModelOption = {
   id: string
   name: string
-  thinkingLevels: ThinkingLevel[]
+  providerId: string
+  optionGroups: Array<{
+    id: 'thinking'
+    label: string
+    options: Array<{ id: ThinkingLevel; label: string }>
+  }>
+}
+
+type AgentProviderMetadata = {
+  id: string
+  name: string
+  iconSvg: string
 }
 
 type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -66,15 +77,6 @@ type ComposerImage = {
   mimeType: string
   data: string
   previewUrl: string
-}
-
-const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
-  off: 'off',
-  minimal: 'minimal',
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
-  xhigh: 'xhigh'
 }
 
 type AgentStreamEvent =
@@ -197,7 +199,10 @@ interface AppState extends PersistedState {
   chatRunStateByChatId: Record<string, ChatRunState>
   authChecked: boolean
   loggedIn: boolean
+  providers: AgentProviderMetadata[]
   models: ModelOption[]
+  agentModelMenuOpen: boolean
+  hoveredAgentProviderId: string
   sidebarCollapsed: boolean
   expandedWorkspaces: Set<string>
   settingsDialogOpen: boolean
@@ -342,7 +347,10 @@ const loadState = (): AppState => {
         chatRunStateByChatId: {},
         authChecked: false,
         loggedIn: false,
+        providers: [],
         models: [],
+        agentModelMenuOpen: false,
+        hoveredAgentProviderId: '',
         sidebarCollapsed: true,
         expandedWorkspaces: new Set<string>(),
         settingsDialogOpen: false,
@@ -375,7 +383,10 @@ const loadState = (): AppState => {
     chatRunStateByChatId: {},
     authChecked: false,
     loggedIn: false,
+    providers: [],
     models: [],
+    agentModelMenuOpen: false,
+    hoveredAgentProviderId: '',
     sidebarCollapsed: true,
     expandedWorkspaces: new Set<string>(),
     settingsDialogOpen: false,
@@ -487,8 +498,37 @@ const getSelectedModel = (current: AppState = state): ModelOption | undefined =>
   return current.models.find((model) => model.id === current.selectedModelId)
 }
 
+const getProviderById = (
+  providerId: string,
+  current: AppState = state
+): AgentProviderMetadata | undefined => {
+  return current.providers.find((provider) => provider.id === providerId)
+}
+
+const getSelectedProvider = (current: AppState = state): AgentProviderMetadata | undefined => {
+  const selectedModel = getSelectedModel(current)
+  return selectedModel ? getProviderById(selectedModel.providerId, current) : current.providers[0]
+}
+
+const getModelsForProvider = (providerId: string, current: AppState = state): ModelOption[] => {
+  return current.models.filter((model) => model.providerId === providerId)
+}
+
+const getThinkingOptions = (
+  current: AppState = state
+): Array<{ id: ThinkingLevel; label: string }> => {
+  return (
+    getSelectedModel(current)?.optionGroups.find((group) => group.id === 'thinking')?.options ?? []
+  )
+}
+
 const getAvailableThinkingLevels = (current: AppState = state): ThinkingLevel[] => {
-  return getSelectedModel(current)?.thinkingLevels ?? ['off']
+  const levels = getThinkingOptions(current).map((option) => option.id)
+  return levels.length > 0 ? levels : ['off']
+}
+
+const getSvgDataUri = (svg: string): string => {
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`
 }
 
 const isChatRunning = (chatId: string, current: AppState = state): boolean => {
@@ -1100,13 +1140,21 @@ const syncAuthState = async (): Promise<void> => {
       ? current.selectedModelId
       : authState.defaultModelId
     const selectedModel = authState.models.find((model) => model.id === selectedModelId)
-    const thinkingLevels = selectedModel?.thinkingLevels ?? ['off']
+    const thinkingLevels = selectedModel?.optionGroups
+      .find((group) => group.id === 'thinking')
+      ?.options.map((option) => option.id) ?? ['off']
 
     return {
       ...current,
       authChecked: true,
       loggedIn: authState.loggedIn,
+      providers: authState.providers,
       models: authState.models,
+      hoveredAgentProviderId:
+        current.hoveredAgentProviderId &&
+        authState.providers.some((provider) => provider.id === current.hoveredAgentProviderId)
+          ? current.hoveredAgentProviderId
+          : (selectedModel?.providerId ?? authState.providers[0]?.id ?? ''),
       selectedModelId,
       selectedThinkingLevel: thinkingLevels.includes(current.selectedThinkingLevel)
         ? current.selectedThinkingLevel
@@ -1179,13 +1227,13 @@ const setSelectedModelId = (value: string): void => {
   updateState((current) => ({
     ...current,
     selectedModelId: value,
-    selectedThinkingLevel: (
-      current.models.find((model) => model.id === value)?.thinkingLevels ?? ['off']
-    ).includes(current.selectedThinkingLevel)
+    agentModelMenuOpen: false,
+    selectedThinkingLevel: getAvailableThinkingLevels({
+      ...current,
+      selectedModelId: value
+    }).includes(current.selectedThinkingLevel)
       ? current.selectedThinkingLevel
-      : getDefaultThinkingLevel(
-          current.models.find((model) => model.id === value)?.thinkingLevels ?? ['off']
-        )
+      : getDefaultThinkingLevel(getAvailableThinkingLevels({ ...current, selectedModelId: value }))
   }))
 }
 
@@ -1580,6 +1628,7 @@ const sendMessage = async (): Promise<void> => {
     prompt,
     images,
     modelId: state.selectedModelId,
+    providerId: getSelectedModel()?.providerId,
     thinkingLevel: state.selectedThinkingLevel
   })
 
@@ -2436,6 +2485,138 @@ const renderMessage = (message: Message): TemplateResult => {
   `
 }
 
+const renderAgentModelSelector = ({ disabled }: { disabled: boolean }): TemplateResult => {
+  const selectedModel = getSelectedModel()
+  const selectedProvider = getSelectedProvider()
+  const activeProviderId =
+    state.hoveredAgentProviderId || selectedProvider?.id || state.providers[0]?.id || ''
+  const activeProvider = getProviderById(activeProviderId) ?? selectedProvider
+  const activeProviderModels = activeProvider ? getModelsForProvider(activeProvider.id) : []
+
+  return html`
+    <div
+      class="relative"
+      @mouseleave=${() => {
+        if (state.agentModelMenuOpen) {
+          updateState((current) => ({
+            ...current,
+            agentModelMenuOpen: false,
+            hoveredAgentProviderId: selectedProvider?.id ?? ''
+          }))
+        }
+      }}
+    >
+      <button
+        type="button"
+        class="model-select-btn flex h-9 max-w-[280px] items-center gap-2 rounded-lg px-2 text-sm font-medium text-[var(--vector-text)] transition-all hover:bg-[var(--vector-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+        ?disabled=${disabled}
+        title="Agent and model"
+        @mouseenter=${() => {
+          if (!disabled) {
+            updateState((current) => ({
+              ...current,
+              agentModelMenuOpen: true,
+              hoveredAgentProviderId: selectedProvider?.id ?? current.providers[0]?.id ?? ''
+            }))
+          }
+        }}
+        @click=${() => {
+          if (!disabled) {
+            updateState((current) => ({
+              ...current,
+              agentModelMenuOpen: !current.agentModelMenuOpen,
+              hoveredAgentProviderId: selectedProvider?.id ?? current.providers[0]?.id ?? ''
+            }))
+          }
+        }}
+      >
+        ${selectedProvider
+          ? html`<span class="flex h-5 w-5 shrink-0 items-center justify-center">
+              <img
+                class="h-4 w-4"
+                src=${getSvgDataUri(selectedProvider.iconSvg)}
+                alt=${selectedProvider.name}
+              />
+            </span>`
+          : ''}
+        <span class="truncate">${selectedModel?.name ?? 'Model'}</span>
+      </button>
+
+      ${state.agentModelMenuOpen && !disabled
+        ? html`
+            <div
+              class="absolute bottom-full left-0 z-30 mb-2 flex max-h-[320px] overflow-hidden rounded-2xl border border-[var(--vector-border)] bg-[var(--vector-surface)] p-1.5 shadow-2xl shadow-black/30"
+            >
+              <div class="max-h-[308px] w-[148px] space-y-1 overflow-y-auto pr-1">
+                ${state.providers.map(
+                  (provider) => html`
+                    <button
+                      type="button"
+                      class=${[
+                        'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors',
+                        provider.id === activeProvider?.id
+                          ? 'bg-[var(--vector-surface-active)] text-[var(--vector-text)]'
+                          : 'text-[var(--vector-text-muted)] hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]'
+                      ].join(' ')}
+                      @mouseenter=${() => {
+                        updateState((current) => ({
+                          ...current,
+                          hoveredAgentProviderId: provider.id
+                        }))
+                      }}
+                      @click=${() => {
+                        const firstModel = getModelsForProvider(provider.id)[0]
+                        if (firstModel) setSelectedModelId(firstModel.id)
+                      }}
+                    >
+                      <span class="flex h-6 w-6 shrink-0 items-center justify-center">
+                        <img
+                          class="h-4 w-4"
+                          src=${getSvgDataUri(provider.iconSvg)}
+                          alt=${provider.name}
+                        />
+                      </span>
+                      <span class="min-w-0 flex-1 truncate font-medium">${provider.name}</span>
+                    </button>
+                  `
+                )}
+              </div>
+
+              <div
+                class="ml-1 max-h-[308px] w-[340px] space-y-1 overflow-y-auto border-l border-[var(--vector-border)] pl-1"
+              >
+                ${activeProviderModels.length > 0
+                  ? activeProviderModels.map(
+                      (model) => html`
+                        <button
+                          type="button"
+                          class=${[
+                            'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors',
+                            model.id === state.selectedModelId
+                              ? 'bg-[var(--vector-surface-active)] text-[var(--vector-text)]'
+                              : 'text-[var(--vector-text-muted)] hover:bg-[var(--vector-surface-hover)] hover:text-[var(--vector-text)]'
+                          ].join(' ')}
+                          @click=${() => setSelectedModelId(model.id)}
+                        >
+                          <span class="min-w-0 flex-1">
+                            <span class="block truncate font-medium">${model.name}</span>
+                          </span>
+                        </button>
+                      `
+                    )
+                  : html`
+                      <div class="px-3 py-2 text-sm text-[var(--vector-text-muted)]">
+                        No models available for ${activeProvider?.name ?? 'this agent'}
+                      </div>
+                    `}
+              </div>
+            </div>
+          `
+        : ''}
+    </div>
+  `
+}
+
 const renderTerminalDock = (): TemplateResult => {
   const activeTerminalId = state.activeTerminalId
 
@@ -2540,7 +2721,7 @@ export const App = (): TemplateResult => {
       >
         <div class="flex items-center gap-3 text-sm text-[var(--vector-text-muted)]">
           ${icon(LoaderCircle, 'sm', 'animate-spin')}
-          <span>Loading Pi models…</span>
+          <span>Loading agents…</span>
         </div>
       </div>
     `
@@ -2699,30 +2880,17 @@ export const App = (): TemplateResult => {
 
                   <div class="mt-1 flex items-center justify-between gap-3 pt-1">
                     <div class="flex min-w-0 flex-wrap items-center gap-2">
-                      ${Select({
-                        className: 'model-select-btn',
-                        variant: 'ghost',
-                        value: state.selectedModelId,
-                        placeholder: 'Model',
-                        options: state.models.map((model) => ({
-                          value: model.id,
-                          label: model.name
-                        })),
-                        onChange: (value) => {
-                          setSelectedModelId(value)
-                        },
-                        disabled: !activeChat || state.models.length === 0 || isSending,
-                        width: 'auto',
-                        size: 'md'
+                      ${renderAgentModelSelector({
+                        disabled: !activeChat || state.models.length === 0 || isSending
                       })}
                       ${Select({
                         className: 'thinking-select-btn',
                         variant: 'ghost',
                         value: state.selectedThinkingLevel,
                         placeholder: 'Thinking',
-                        options: getAvailableThinkingLevels().map((level) => ({
-                          value: level,
-                          label: THINKING_LEVEL_LABELS[level]
+                        options: getThinkingOptions().map((option) => ({
+                          value: option.id,
+                          label: option.label
                         })),
                         onChange: (value) => {
                           setSelectedThinkingLevel(value as ThinkingLevel)
@@ -2809,7 +2977,7 @@ export const App = (): TemplateResult => {
             children: html`
               ${DialogHeader({
                 title: 'Settings',
-                description: 'Vector uses your Pi CLI auth and model configuration.'
+                description: 'Vector uses your configured agent CLI auth and model settings.'
               })}
               ${DialogFooter({
                 children: html`

@@ -13,44 +13,12 @@ import { homedir } from 'os'
 import { basename, join, resolve } from 'path'
 import { promisify } from 'util'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { supportsXhigh, type Api, type ImageContent, type Model } from '@mariozechner/pi-ai'
+import type { ImageContent } from '@mariozechner/pi-ai'
 import { spawn, type IPty } from 'node-pty'
 import * as Diff from 'diff'
-import {
-  AuthStorage,
-  createAgentSession,
-  createBashTool,
-  createEditTool,
-  createReadTool,
-  createWriteTool,
-  ModelRegistry,
-  SessionManager
-} from '../../node_modules/@mariozechner/pi-coding-agent/dist/index.js'
+import { createPiProvider } from './agents/pi-provider'
+import type { AgentModel, AgentProviderMetadata, StreamEvent, ThinkingLevel } from './agents/types'
 import icon from '../../resources/icon.png?asset'
-
-type PiSession = Awaited<ReturnType<typeof createAgentSession>>['session']
-
-type SessionEvent = {
-  type?: string
-  assistantMessageEvent?: {
-    type?: string
-    delta?: string
-  }
-  toolCallId?: string
-  toolName?: string
-  args?: unknown
-  partialResult?: unknown
-  result?: unknown
-  isError?: boolean
-}
-
-type ModelOption = {
-  id: string
-  name: string
-  thinkingLevels: ThinkingLevel[]
-}
-
-type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
 type TerminalSessionSummary = {
   id: string
@@ -76,38 +44,6 @@ type TerminalRecord = {
   exitCode: number | null
 }
 
-type StreamEvent =
-  | { type: 'start'; chatId: string; requestId: string }
-  | { type: 'text_delta'; chatId: string; requestId: string; delta: string }
-  | { type: 'thinking_delta'; chatId: string; requestId: string; delta: string }
-  | {
-      type: 'tool_start'
-      chatId: string
-      requestId: string
-      toolCallId: string
-      toolName: string
-      argsText: string
-    }
-  | {
-      type: 'tool_update'
-      chatId: string
-      requestId: string
-      toolCallId: string
-      toolName: string
-      output: string
-    }
-  | {
-      type: 'tool_end'
-      chatId: string
-      requestId: string
-      toolCallId: string
-      toolName: string
-      output: string
-      isError: boolean
-    }
-  | { type: 'end'; chatId: string; requestId: string }
-  | { type: 'error'; chatId: string; requestId: string; error: string }
-
 type ChatNotificationClickEvent = {
   chatId: string
 }
@@ -123,9 +59,7 @@ type ReviewFile = {
 let mainWindow: BrowserWindow | null = null
 
 app.setName('Vector')
-const authStorage = AuthStorage.create()
-const modelRegistry = new ModelRegistry(authStorage)
-const sessionCache = new Map<string, PiSession>()
+const agentProviders = [createPiProvider()]
 const terminalSessions = new Map<string, TerminalRecord>()
 let terminalSequence = 0
 const execFileAsync = promisify(execFile)
@@ -423,72 +357,22 @@ const getWorkspaceDiff = async (cwd: string): Promise<ReviewFile[]> => {
   return reviewFiles.sort((left, right) => left.path.localeCompare(right.path))
 }
 
-const compareModels = (left: ModelOption, right: ModelOption): number => {
-  const byName = right.name.localeCompare(left.name, undefined, {
-    numeric: true,
-    sensitivity: 'base'
-  })
-  if (byName !== 0) return byName
-
-  return right.id.localeCompare(left.id, undefined, {
-    numeric: true,
-    sensitivity: 'base'
-  })
+const getAgentProvider = (providerId: string) => {
+  return agentProviders.find((provider) => provider.metadata.id === providerId) ?? agentProviders[0]
 }
 
-const getModelOptionId = (provider: string, modelId: string): string => {
-  return JSON.stringify({ provider, modelId })
-}
-
-const parseModelOptionId = (value: string): { provider: string; modelId: string } | undefined => {
-  try {
-    const parsed = JSON.parse(value) as { provider?: unknown; modelId?: unknown }
-    if (typeof parsed.provider === 'string' && typeof parsed.modelId === 'string') {
-      return { provider: parsed.provider, modelId: parsed.modelId }
-    }
-  } catch {
-    return undefined
-  }
-
-  return undefined
-}
-
-const getThinkingLevelsForModel = (model: Model<Api>): ThinkingLevel[] => {
-  if (!model.reasoning) return ['off']
-  return supportsXhigh(model)
-    ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
-    : ['off', 'minimal', 'low', 'medium', 'high']
-}
-
-const getPiModels = (): ModelOption[] => {
-  modelRegistry.refresh()
-  return modelRegistry
-    .getAvailable()
-    .map((model) => ({
-      id: getModelOptionId(model.provider, model.id),
-      name: `${model.name} (${model.provider})`,
-      thinkingLevels: getThinkingLevelsForModel(model)
-    }))
-    .sort(compareModels)
-}
-
-const getAuthState = (): { loggedIn: boolean; models: ModelOption[]; defaultModelId: string } => {
-  const models = getPiModels()
+const getAuthState = (): {
+  loggedIn: boolean
+  providers: AgentProviderMetadata[]
+  models: AgentModel[]
+  defaultModelId: string
+} => {
+  const models = agentProviders.flatMap((provider) => provider.getModels())
   return {
-    loggedIn: true,
+    loggedIn: agentProviders.some((provider) => provider.isConfigured()),
+    providers: agentProviders.map((provider) => provider.metadata),
     models,
     defaultModelId: models[0]?.id ?? ''
-  }
-}
-
-const safeStringify = (value: unknown): string => {
-  if (typeof value === 'string') return value
-  if (value === undefined) return ''
-
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
   }
 }
 
@@ -511,193 +395,6 @@ const normalizePromptImages = (value: unknown): ImageContent[] => {
       }
     })
     .filter((entry): entry is ImageContent => Boolean(entry))
-}
-
-const extractTextFromToolPayload = (value: unknown): string => {
-  if (typeof value === 'string') return value
-  if (!value || typeof value !== 'object') return safeStringify(value)
-
-  const record = value as {
-    content?: Array<{ type?: string; text?: string; content?: string }>
-    stdout?: string
-    stderr?: string
-    output?: string
-  }
-
-  if (typeof record.stdout === 'string' || typeof record.stderr === 'string') {
-    return [record.stdout, record.stderr]
-      .filter(Boolean)
-      .join(record.stdout && record.stderr ? '\n' : '')
-  }
-
-  if (typeof record.output === 'string') return record.output
-
-  if (Array.isArray(record.content)) {
-    const text = record.content
-      .map((part) => {
-        if (typeof part?.text === 'string') return part.text
-        if (typeof part?.content === 'string') return part.content
-        return ''
-      })
-      .filter(Boolean)
-      .join('\n')
-
-    if (text) return text
-  }
-
-  return safeStringify(value)
-}
-
-const extractAssistantText = (messages: unknown[]): string => {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index] as {
-      role?: string
-      content?: Array<{ type?: string; text?: string }>
-    }
-
-    if (message?.role !== 'assistant' || !Array.isArray(message.content)) {
-      continue
-    }
-
-    const text = message.content
-      .filter((part) => part?.type === 'text' && typeof part.text === 'string')
-      .map((part) => part.text)
-      .join('')
-      .trim()
-
-    if (text) return text
-  }
-
-  return ''
-}
-
-const getOrCreateSession = async (
-  chatId: string,
-  cwd: string,
-  modelId: string,
-  thinkingLevel: ThinkingLevel
-): Promise<PiSession> => {
-  modelRegistry.refresh()
-  const parsedModel = parseModelOptionId(modelId)
-  const model = parsedModel
-    ? modelRegistry.find(parsedModel.provider, parsedModel.modelId)
-    : modelRegistry.getAvailable()[0]
-
-  if (!model) {
-    throw new Error('No Pi model is available. Configure pi CLI auth, then restart Vector.')
-  }
-
-  const cached = sessionCache.get(chatId)
-  if (cached) {
-    if (cached.model?.id !== model.id || cached.model?.provider !== model.provider) {
-      await cached.setModel(model)
-    }
-    cached.setThinkingLevel(thinkingLevel)
-    return cached
-  }
-
-  const { session } = await createAgentSession({
-    cwd,
-    model,
-    authStorage,
-    modelRegistry,
-    tools: [createReadTool(cwd), createBashTool(cwd), createEditTool(cwd), createWriteTool(cwd)],
-    sessionManager: SessionManager.inMemory()
-  })
-
-  session.setThinkingLevel(thinkingLevel)
-  sessionCache.set(chatId, session)
-  return session
-}
-
-const streamPrompt = async (
-  chatId: string,
-  cwd: string,
-  prompt: string,
-  images: ImageContent[],
-  modelId: string,
-  thinkingLevel: ThinkingLevel,
-  requestId: string
-): Promise<void> => {
-  const session = await getOrCreateSession(chatId, cwd, modelId, thinkingLevel)
-  let text = ''
-
-  emitStreamEvent({ type: 'start', chatId, requestId })
-
-  const unsubscribe = session.subscribe((event: unknown) => {
-    const update = event as SessionEvent
-
-    if (update.type === 'message_update') {
-      if (update.assistantMessageEvent?.type === 'text_delta') {
-        const delta = update.assistantMessageEvent.delta ?? ''
-        text += delta
-        emitStreamEvent({ type: 'text_delta', chatId, requestId, delta })
-      }
-
-      if (update.assistantMessageEvent?.type === 'thinking_delta') {
-        emitStreamEvent({
-          type: 'thinking_delta',
-          chatId,
-          requestId,
-          delta: update.assistantMessageEvent.delta ?? ''
-        })
-      }
-
-      return
-    }
-
-    if (update.type === 'tool_execution_start') {
-      emitStreamEvent({
-        type: 'tool_start',
-        chatId,
-        requestId,
-        toolCallId: update.toolCallId ?? `${requestId}-tool-start`,
-        toolName: update.toolName ?? 'tool',
-        argsText: safeStringify(update.args)
-      })
-      return
-    }
-
-    if (update.type === 'tool_execution_update') {
-      emitStreamEvent({
-        type: 'tool_update',
-        chatId,
-        requestId,
-        toolCallId: update.toolCallId ?? `${requestId}-tool-update`,
-        toolName: update.toolName ?? 'tool',
-        output: extractTextFromToolPayload(update.partialResult)
-      })
-      return
-    }
-
-    if (update.type === 'tool_execution_end') {
-      emitStreamEvent({
-        type: 'tool_end',
-        chatId,
-        requestId,
-        toolCallId: update.toolCallId ?? `${requestId}-tool-end`,
-        toolName: update.toolName ?? 'tool',
-        output: extractTextFromToolPayload(update.result),
-        isError: Boolean(update.isError)
-      })
-    }
-  })
-
-  try {
-    await session.prompt(prompt, images.length > 0 ? { images } : undefined)
-    if (!text.trim()) {
-      const fallback = extractAssistantText(session.messages as unknown[])
-      if (fallback) {
-        emitStreamEvent({ type: 'text_delta', chatId, requestId, delta: fallback })
-      }
-    }
-    emitStreamEvent({ type: 'end', chatId, requestId })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    emitStreamEvent({ type: 'error', chatId, requestId, error: message })
-  } finally {
-    unsubscribe()
-  }
 }
 
 function createWindow(): void {
@@ -785,20 +482,26 @@ app.whenReady().then(() => {
         prompt: string
         images?: ImageContent[]
         modelId: string
+        providerId?: string
         thinkingLevel: ThinkingLevel
       }
     ) => {
       try {
         const requestId = `${payload.chatId}-${Date.now()}`
-        void streamPrompt(
-          payload.chatId,
-          payload.cwd,
-          payload.prompt,
-          normalizePromptImages(payload.images),
-          payload.modelId,
-          payload.thinkingLevel,
-          requestId
-        )
+        const model = getAuthState().models.find((entry) => entry.id === payload.modelId)
+        const provider = getAgentProvider(payload.providerId ?? model?.providerId ?? '')
+        void provider.sendMessage({
+          chatId: payload.chatId,
+          cwd: payload.cwd,
+          prompt: payload.prompt,
+          images: normalizePromptImages(payload.images),
+          modelId: payload.modelId,
+          options: {
+            thinkingLevel: payload.thinkingLevel
+          },
+          requestId,
+          emit: emitStreamEvent
+        })
         return { ok: true as const, requestId }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
