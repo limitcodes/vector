@@ -72,6 +72,6 @@ export type AgentRequest = {
 export interface AgentProvider {
   metadata: AgentProviderMetadata
   isConfigured: () => boolean
-  getModels: () => AgentModel[]
+  getModels: () => AgentModel[] | Promise<AgentModel[]>
   sendMessage: (request: AgentRequest) => Promise<void>
 }

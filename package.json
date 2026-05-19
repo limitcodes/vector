@@ -25,6 +25,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@factory/droid-sdk": "^0.2.0",
     "@mariozechner/mini-lit": "^0.2.1",
     "@mariozechner/pi-coding-agent": "^0.60.0",
     "@xterm/addon-fit": "^0.11.0",

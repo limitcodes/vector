@@ -2533,7 +2533,7 @@ const renderAgentModelSelector = ({ disabled }: { disabled: boolean }): Template
         ${selectedProvider
           ? html`<span class="flex h-5 w-5 shrink-0 items-center justify-center">
               <img
-                class="h-4 w-4"
+                class="h-5 w-5"
                 src=${getSvgDataUri(selectedProvider.iconSvg)}
                 alt=${selectedProvider.name}
               />
@@ -2545,7 +2545,7 @@ const renderAgentModelSelector = ({ disabled }: { disabled: boolean }): Template
       ${state.agentModelMenuOpen && !disabled
         ? html`
             <div
-              class="absolute bottom-full left-0 z-30 mb-2 flex max-h-[320px] overflow-hidden rounded-2xl border border-[var(--vector-border)] bg-[var(--vector-surface)] p-1.5 shadow-2xl shadow-black/30"
+              class="absolute bottom-full left-0 z-30 flex max-h-[320px] overflow-hidden rounded-2xl border border-[var(--vector-border)] bg-[var(--vector-surface)] p-1.5 shadow-2xl shadow-black/30"
             >
               <div class="max-h-[308px] w-[148px] space-y-1 overflow-y-auto pr-1">
                 ${state.providers.map(
@@ -2571,7 +2571,7 @@ const renderAgentModelSelector = ({ disabled }: { disabled: boolean }): Template
                     >
                       <span class="flex h-6 w-6 shrink-0 items-center justify-center">
                         <img
-                          class="h-4 w-4"
+                          class="h-5 w-5"
                           src=${getSvgDataUri(provider.iconSvg)}
                           alt=${provider.name}
                         />

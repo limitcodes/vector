@@ -16,6 +16,7 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import type { ImageContent } from '@mariozechner/pi-ai'
 import { spawn, type IPty } from 'node-pty'
 import * as Diff from 'diff'
+import { createDroidProvider } from './agents/droid-provider'
 import { createPiProvider } from './agents/pi-provider'
 import type { AgentModel, AgentProviderMetadata, StreamEvent, ThinkingLevel } from './agents/types'
 import icon from '../../resources/icon.png?asset'
@@ -59,7 +60,7 @@ type ReviewFile = {
 let mainWindow: BrowserWindow | null = null
 
 app.setName('Vector')
-const agentProviders = [createPiProvider()]
+const agentProviders = [createPiProvider(), createDroidProvider()]
 const terminalSessions = new Map<string, TerminalRecord>()
 let terminalSequence = 0
 const execFileAsync = promisify(execFile)
@@ -361,13 +362,13 @@ const getAgentProvider = (providerId: string) => {
   return agentProviders.find((provider) => provider.metadata.id === providerId) ?? agentProviders[0]
 }
 
-const getAuthState = (): {
+const getAuthState = async (): Promise<{
   loggedIn: boolean
   providers: AgentProviderMetadata[]
   models: AgentModel[]
   defaultModelId: string
-} => {
-  const models = agentProviders.flatMap((provider) => provider.getModels())
+}> => {
+  const models = (await Promise.all(agentProviders.map((provider) => provider.getModels()))).flat()
   return {
     loggedIn: agentProviders.some((provider) => provider.isConfigured()),
     providers: agentProviders.map((provider) => provider.metadata),
@@ -488,7 +489,7 @@ app.whenReady().then(() => {
     ) => {
       try {
         const requestId = `${payload.chatId}-${Date.now()}`
-        const model = getAuthState().models.find((entry) => entry.id === payload.modelId)
+        const model = (await getAuthState()).models.find((entry) => entry.id === payload.modelId)
         const provider = getAgentProvider(payload.providerId ?? model?.providerId ?? '')
         void provider.sendMessage({
           chatId: payload.chatId,
